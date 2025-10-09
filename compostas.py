@@ -174,59 +174,8 @@ def _zscore(series: pd.Series) -> pd.Series:
     return (s - m) / sd
 
 # ===================== DERIVED METRICS =====================
-def compute_derived_metrics(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    needed = set([
-        "xG","Penalties taken","Goals","Shots","Touches in box per 90",
-        "xA per 90","Shot assists per 90","Key passes per 90","Deep completions per 90",
-        "Deep completed crosses per 90","Accurate passes %","Accurate passes, %",
-        "Smart passes per 90","Through passes per 90","Passes to penalty area per 90",
-        "Accurate smart passes, %","Accurate through passes, %","Accurate passes to penalty area, %",
-        "Progressive passes per 90","Progressive runs per 90","Dribbles per 90","Accelerations per 90",
-        "Accurate progressive passes, %","Successful dribbles, %",
-        "Successful defensive actions per 90","PAdj Interceptions","Shots blocked per 90","PAdj Sliding tackles",
-        "Defensive duels per 90","Defensive duels won, %","Aerial duels won, %","Aerial duels per 90",
-        "Passes to final third per 90","Accurate passes to final third, %","Forward passes per 90","Accurate forward passes, %",
-        "Long passes per 90","Accurate long passes, %","Lateral passes per 90","Accurate lateral passes, %",
-        "Back passes per 90","Accurate back passes, %","Passes per 90",
-        "Head goals per 90","Goal conversion, %","Received passes per 90",
-        "Fouls per 90","Yellow cards per 90","Red cards per 90",
-        "Minutes played"
-    ])
-    _ensure_cols(df, list(needed))
 
-    
-# npxG & friends  (compute on raw first; z-score at the end)
-if "xG" in df.columns:
-    pen = df["Penalties taken"].fillna(0) if "Penalties taken" in df.columns else 0
-    df["_npxG_raw"] = df["xG"] - (pen * 0.81)
-
-# G-xG as z-score of the raw difference
-if {"Goals","xG"}.issubset(df.columns):
-    diff_g_xg = pd.to_numeric(df["Goals"], errors="coerce") - pd.to_numeric(df["xG"], errors="coerce")
-    df["G-xG"] = _zscore(diff_g_xg)
-
-# npxG per 90 from raw
-if "_npxG_raw" in df.columns and "Minutes played" in df.columns:
-    with np.errstate(divide="ignore", invalid="ignore"):
-        minutes = pd.to_numeric(df["Minutes played"], errors="coerce").replace(0, np.nan)
-        npxg_per90_raw = df["_npxG_raw"] / (minutes / 90.0)
-    df["npxG per 90"] = _zscore(npxg_per90_raw)
-
-# npxG per Shot from raw
-if "_npxG_raw" in df.columns and "Shots" in df.columns:
-    with np.errstate(divide="ignore", invalid="ignore"):
-        shots = pd.to_numeric(df["Shots"], errors="coerce").replace(0, np.nan)
-        npxg_per_shot_raw = df["_npxG_raw"] / shots
-    df["npxG per Shot"] = _zscore(npxg_per_shot_raw)
-
-# npxG total standardized (optional but consistent)
-if "_npxG_raw" in df.columns:
-    df["npxG"] = _zscore(df["_npxG_raw"])
-    df.drop(columns=["_npxG_raw"], inplace=True)
-
-# Box Threat
-
+    # Box Threat
     if "npxG per 90" in df and "Touches in box per 90" in df:
         with np.errstate(divide="ignore", invalid="ignore"):
             denom = np.log(df["Touches in box per 90"].fillna(0) + 1)
@@ -487,36 +436,27 @@ def compute_composite_metrics(df: pd.DataFrame, off_weights: dict[str, float]) -
 
 # ===================== RADAR / UI HELPERS =====================
 
-def _bounds_from_df(df: pd.DataFrame, metrics: list[str]):
+def _bounds_from_df(df, metrics):
     lowers, uppers = [], []
+    import numpy as _np
+    import pandas as _pd
     for m in metrics:
-        s = pd.to_numeric(df[m], errors="coerce")
-        if m in NEGATE_METRICS:
-            s = -s
-        # Work on valid finite values only
-        s_valid = s[np.isfinite(s.values)]
-        if s_valid.empty:
-            lo, hi = -1.0, 1.0
+        if m in df.columns:
+            s = _pd.to_numeric(df[m], errors="coerce")
         else:
-            try:
-                lo = float(np.nanpercentile(s_valid, 5))
-                hi = float(np.nanpercentile(s_valid, 95))
-            except Exception:
-                lo, hi = float(np.nanmin(s_valid)), float(np.nanmax(s_valid))
-            # Fallbacks
-            if not np.isfinite(lo) or not np.isfinite(hi) or lo == hi:
-                lo = float(np.nanmin(s_valid))
-                hi = float(np.nanmax(s_valid))
-            if not np.isfinite(lo) or not np.isfinite(hi):
-                lo, hi = -1.0, 1.0
-            if lo == hi:
-                lo, hi = lo - 0.5, hi + 0.5
-            if lo > hi:
-                lo, hi = hi, lo
-        lowers.append(lo)
-        uppers.append(hi)
+            s = _pd.Series(dtype=float)
+        if s.notna().sum() == 0:
+            lo, hi = -2.0, 2.0
+        else:
+            lo = _np.nanmin(s.values)
+            hi = _np.nanmax(s.values)
+            if not _np.isfinite(lo) or not _np.isfinite(hi) or hi == lo:
+                span = abs(hi) if _np.isfinite(hi) else 1.0
+                lo, hi = (hi - 0.5*max(1.0, span), hi + 0.5*max(1.0, span))
+        if hi <= lo:
+            hi = lo + 1.0
+        lowers.append(float(lo)); uppers.append(float(hi))
     return lowers, uppers
-
 
 def _values_for_player(row: pd.Series, metrics: list[str]):
     vals = []
