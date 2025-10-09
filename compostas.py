@@ -195,22 +195,38 @@ def compute_derived_metrics(df: pd.DataFrame) -> pd.DataFrame:
     ])
     _ensure_cols(df, list(needed))
 
-    # npxG & friends
-    if "xG" in df and "Penalties taken" in df:
-        df["npxG"] = (df["xG"] - (df["Penalties taken"].fillna(0) * 0.81))
-        df["npxG"] = _zscore(df["npxG"])
-    if "Goals" in df and "xG" in df:
-        df["G-xG"] = _zscore(df["Goals"] - df["xG"])
-    if "npxG" in df and "Minutes played" in df:
-        with np.errstate(divide="ignore", invalid="ignore"):
-            df["npxG per 90"] = df["npxG"] / (df["Minutes played"].replace(0, np.nan) / 90)
-        df["npxG per 90"] = _zscore(df["npxG per 90"])
-    if "npxG" in df and "Shots" in df:
-        with np.errstate(divide="ignore", invalid="ignore"):
-            df["npxG per Shot"] = df["npxG"] / df["Shots"].replace(0, np.nan)
-        df["npxG per Shot"] = _zscore(df["npxG per Shot"])
+    
+# npxG & friends  (compute on raw first; z-score at the end)
+if "xG" in df.columns:
+    pen = df["Penalties taken"].fillna(0) if "Penalties taken" in df.columns else 0
+    df["_npxG_raw"] = df["xG"] - (pen * 0.81)
 
-    # Box Threat
+# G-xG as z-score of the raw difference
+if {"Goals","xG"}.issubset(df.columns):
+    diff_g_xg = pd.to_numeric(df["Goals"], errors="coerce") - pd.to_numeric(df["xG"], errors="coerce")
+    df["G-xG"] = _zscore(diff_g_xg)
+
+# npxG per 90 from raw
+if "_npxG_raw" in df.columns and "Minutes played" in df.columns:
+    with np.errstate(divide="ignore", invalid="ignore"):
+        minutes = pd.to_numeric(df["Minutes played"], errors="coerce").replace(0, np.nan)
+        npxg_per90_raw = df["_npxG_raw"] / (minutes / 90.0)
+    df["npxG per 90"] = _zscore(npxg_per90_raw)
+
+# npxG per Shot from raw
+if "_npxG_raw" in df.columns and "Shots" in df.columns:
+    with np.errstate(divide="ignore", invalid="ignore"):
+        shots = pd.to_numeric(df["Shots"], errors="coerce").replace(0, np.nan)
+        npxg_per_shot_raw = df["_npxG_raw"] / shots
+    df["npxG per Shot"] = _zscore(npxg_per_shot_raw)
+
+# npxG total standardized (optional but consistent)
+if "_npxG_raw" in df.columns:
+    df["npxG"] = _zscore(df["_npxG_raw"])
+    df.drop(columns=["_npxG_raw"], inplace=True)
+
+# Box Threat
+
     if "npxG per 90" in df and "Touches in box per 90" in df:
         with np.errstate(divide="ignore", invalid="ignore"):
             denom = np.log(df["Touches in box per 90"].fillna(0) + 1)
@@ -470,17 +486,37 @@ def compute_composite_metrics(df: pd.DataFrame, off_weights: dict[str, float]) -
     return df
 
 # ===================== RADAR / UI HELPERS =====================
+
 def _bounds_from_df(df: pd.DataFrame, metrics: list[str]):
     lowers, uppers = [], []
     for m in metrics:
         s = pd.to_numeric(df[m], errors="coerce")
-        if m in NEGATE_METRICS: s = -s
-        lo = np.nanpercentile(s, 5); hi = np.nanpercentile(s, 95)
-        if not np.isfinite(lo) or not np.isfinite(hi) or lo == hi:
-            lo = np.nanmin(s); hi = np.nanmax(s)
-        if lo == hi: hi = lo + 1e-6
-        lowers.append(float(lo)); uppers.append(float(hi))
+        if m in NEGATE_METRICS:
+            s = -s
+        # Work on valid finite values only
+        s_valid = s[np.isfinite(s.values)]
+        if s_valid.empty:
+            lo, hi = -1.0, 1.0
+        else:
+            try:
+                lo = float(np.nanpercentile(s_valid, 5))
+                hi = float(np.nanpercentile(s_valid, 95))
+            except Exception:
+                lo, hi = float(np.nanmin(s_valid)), float(np.nanmax(s_valid))
+            # Fallbacks
+            if not np.isfinite(lo) or not np.isfinite(hi) or lo == hi:
+                lo = float(np.nanmin(s_valid))
+                hi = float(np.nanmax(s_valid))
+            if not np.isfinite(lo) or not np.isfinite(hi):
+                lo, hi = -1.0, 1.0
+            if lo == hi:
+                lo, hi = lo - 0.5, hi + 0.5
+            if lo > hi:
+                lo, hi = hi, lo
+        lowers.append(lo)
+        uppers.append(hi)
     return lowers, uppers
+
 
 def _values_for_player(row: pd.Series, metrics: list[str]):
     vals = []
