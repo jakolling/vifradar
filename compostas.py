@@ -9,6 +9,12 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from mplsoccer import Radar
 
+def compute_derived_metrics(df):
+    """Compatibility wrapper: compute all derived metrics including fixed npxG per 90 and G-xG."""
+    df = _compute_npxg_fields(df)
+    return df
+
+
 # ===================== CONFIG & STYLE =====================
 st.set_page_config(
     page_title="Composite Metrics & Radar",
