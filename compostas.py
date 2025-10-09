@@ -9,11 +9,63 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from mplsoccer import Radar
 
-def compute_derived_metrics(df):
-    """Compatibility wrapper: compute all derived metrics including fixed npxG per 90 and G-xG."""
-    df = _compute_npxg_fields(df)
-    return df
 
+def compute_derived_metrics(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute derived metrics with correct npxG per 90 and G-xG handling.
+    - npxG_raw = xG - penalties*0.81
+    - npxG per 90 = npxG_raw / (minutes/90)
+    - npxG per Shot = npxG_raw / shots
+    - Then apply z-score to the above (and to total npxG)
+    - G-xG = (Goals - xG) then z-score
+    """
+    df = df.copy()
+
+    def _safe_num(s):
+        return pd.to_numeric(s, errors="coerce")
+
+    def _z(s):
+        s = _safe_num(s)
+        m = s.mean(skipna=True)
+        sd = s.std(skipna=True, ddof=0)
+        if not np.isfinite(sd) or sd == 0:
+            return pd.Series(0.0, index=s.index)
+        return (s - m) / sd
+
+    # npxG raw
+    if "xG" in df.columns:
+        xg = _safe_num(df["xG"]).fillna(0)
+        pens = _safe_num(df["Penalties taken"]).fillna(0) if "Penalties taken" in df.columns else 0.0
+        df["_npxG_raw"] = xg - pens * 0.81
+    else:
+        df["_npxG_raw"] = np.nan
+
+    # per 90
+    if "Minutes played" in df.columns:
+        minutes = _safe_num(df["Minutes played"]).replace(0, np.nan)
+        df["npxG per 90"] = _z(df["_npxG_raw"] / (minutes / 90.0))
+    else:
+        df["npxG per 90"] = np.nan
+
+    # per shot
+    if "Shots" in df.columns:
+        shots = _safe_num(df["Shots"]).replace(0, np.nan)
+        df["npxG per Shot"] = _z(df["_npxG_raw"] / shots)
+    else:
+        df["npxG per Shot"] = np.nan
+
+    # total
+    df["npxG"] = _z(df["_npxG_raw"])
+
+    # G - xG
+    if {"Goals", "xG"}.issubset(df.columns):
+        goals = _safe_num(df["Goals"])
+        xg = _safe_num(df["xG"])
+        df["G-xG"] = _z(goals - xg)
+    else:
+        df["G-xG"] = np.nan
+
+    return df
 
 # ===================== CONFIG & STYLE =====================
 st.set_page_config(
