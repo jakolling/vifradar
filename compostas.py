@@ -1,7 +1,4 @@
-# compostas_integrated.py
-# Streamlit App — Composite Metrics (Off/Def) + Radar
-# Includes composite metrics from your radar.py and the new physical+technical composites.
-# English UI, clean layout, lighter radar background, radar title with Player — Team | Position | Minutes.
+
 from __future__ import annotations
 import io
 import numpy as np
@@ -45,7 +42,6 @@ OFFENSIVE_COMPONENTS = [
     "Crosses to goalie box per 90",
     "Touches in box per 90",
 ]
-# internal default weights (no sliders in UI)
 DEFAULT_OFF_WEIGHTS = {
     "Successful attacking actions per 90": 1.0,
     "xG per 90": 1.0,
@@ -87,7 +83,6 @@ GK_METRICS = [
 ]
 ID_COLS_CANDIDATES = ["Player", "Short Name", "Team", "Position", "Minutes played", "Minutes"]
 
-# Presets (originals + radar.py themes + new composites)
 PRESETS = {
     "forward": [
         "npxG per 90","xG per 90","Shots per 90","Shots on target, %",
@@ -131,7 +126,6 @@ PRESETS = {
     "goalkeeper": GK_METRICS + [
         "Passes per 90","Accurate passes, %","Long passes per 90","Accurate long passes, %","Aerial duels per 90","Aerial duels won, %"
     ],
-    # Thematic presets from radar.py (kept focused)
     "general_summary": ["Involvement","Box Threat","Creativity","xG Buildup","Progression","Defence","Discipline","Passing Quality"],
     "defensive_actions": ["Defence","Aerial Defence","PAdj Interceptions","Successful defensive actions per 90","Defensive duels won, %","Shots blocked per 90","Discipline"],
     "playmaking": ["Creativity","Passing Quality","Progression","xG Buildup","Successful attacking actions per 90","Deep completions per 90","Involvement","Key passes per 90"],
@@ -143,7 +137,6 @@ PRESETS = {
     "striker": ["npxG per 90","npxG per Shot","Finishing","Poaching","Aerial Threat","Box Threat","Involvement","Touches in box per 90"],
 }
 
-# Lower-is-better to invert when plotting
 NEGATE_METRICS = {
     "Conceded goals per 90": True,
     "xG against per 90": True,
@@ -178,7 +171,7 @@ def _zscore(series: pd.Series) -> pd.Series:
         return pd.Series(0.0, index=s.index)
     return (s - m) / sd
 
-# ===================== DERIVED METRICS (radar.py) =====================
+# ===================== DERIVED METRICS =====================
 def compute_derived_metrics(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     needed = set([
@@ -222,7 +215,7 @@ def compute_derived_metrics(df: pd.DataFrame) -> pd.DataFrame:
             denom = denom.replace(0, np.nan)
             df["Box Threat"] = _zscore(df["npxG per 90"] / denom)
 
-    # xG Buildup (weighted)
+    # xG Buildup
     xgb_w = {
         "xA per 90": 3.0, "Shot assists per 90": 3.0, "npxG per 90": 2.5, "Key passes per 90": 2.5,
         "Deep completions per 90": 2.5, "Deep completed crosses per 90": 2.0, "Second assists per 90": 1.5,
@@ -335,7 +328,7 @@ def compute_derived_metrics(df: pd.DataFrame) -> pd.DataFrame:
             parts.append(_zscore(s) * w)
     if parts: df["Aerial Threat"] = sum(parts)
 
-    # Passing Quality (volume+accuracy)
+    # Passing Quality
     pq_pairs = {
         "Passes to final third per 90": ("Accurate passes to final third, %", 0.35),
         "Forward passes per 90": ("Accurate forward passes, %", 0.30),
@@ -419,13 +412,12 @@ def compute_defensive_production(df: pd.DataFrame) -> pd.Series:
 
 def compute_composite_metrics(df: pd.DataFrame, off_weights: dict[str, float]) -> pd.DataFrame:
     df = df.copy()
-    # Derived (radar.py)
     df = compute_derived_metrics(df)
-    # Physical+technical composites
+
     df = _ensure_cols(df, list(PHYS_COLS.values()))
     df["Prod_Ofensiva_p90"] = compute_offensive_production(df, off_weights)
     df["Prod_Defensiva_p90"] = compute_defensive_production(df)
-    # Denominators (detect common variants)
+
     def pick(*cands):
         for c in cands:
             if c in df.columns: return c
@@ -471,9 +463,9 @@ def compute_composite_metrics(df: pd.DataFrame, off_weights: dict[str, float]) -
         df["Offensive Explosion"] = safe_ratio(df["Prod_Ofensiva_p90"], exp_events)
         df["Defensive Explosion"] = safe_ratio(df["Prod_Defensiva_p90"], exp_events)
 
-    # unify minutes
-    if "Minutes played" not in df.columns and "Minutes" in df.columns:
-        df["Minutes played"] = df["Minutes"]
+    # enforce Minutes played existence
+    if "Minutes played" not in df.columns:
+        raise ValueError("A coluna 'Minutes played' não foi encontrada no arquivo enviado. Certifique-se de manter exatamente esse nome.")
     return df
 
 # ===================== RADAR / UI HELPERS =====================
@@ -550,18 +542,24 @@ def plot_radar(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: l
     fig.savefig(buf, format="png", dpi=220, bbox_inches="tight")
     st.download_button("Download Radar PNG", data=buf.getvalue(), file_name="radar.png", mime="image/png")
 
-# ===================== SIDEBAR — Clean Controls =====================
+# ===================== SIDEBAR — Controls =====================
 st.sidebar.header("⚙️ Settings")
 up = st.sidebar.file_uploader("Upload merged Excel (WyScout + SkillCorner)", type=["xlsx"])
 TOPN = st.sidebar.slider("Top N per ranking", 5, 50, 10, 1)
 pos_filter = st.sidebar.text_input("Filter by Position (regex)", value="")
 team_filter = st.sidebar.text_input("Filter by Team (exact match)", value="")
 demo_mode = st.sidebar.checkbox("Demo mode (synthetic data)", value=False)
+min_minutes = st.sidebar.number_input(
+    "Minimum minutes played",
+    min_value=0,
+    value=0,
+    step=90,
+    help="Players with fewer minutes than this will be excluded from rankings and player pickers."
+)
 
 # ===================== SIDEBAR NAVIGATION =====================
 page = st.sidebar.radio("📑 Pages", ["Dashboard", "Metrics Documentation"])
 
-# If user selects docs, render and stop the rest of the app
 if page == "Metrics Documentation":
     st.title("📘 Composite Metrics Documentation")
     st.caption("Explanation of each composite metric and how it is calculated.")
@@ -604,7 +602,7 @@ These normalize offensive and defensive production by physical output:
 - **Defensive Explosion** = *Defensive Production* ÷ *Explosive Events*
     """)
 
-    st.header("Radar Composite Metrics (from radar.py)")
+    st.header("Radar Composite Metrics")
     st.markdown("""
 These are normalized **[0–100]** composites built from z-scores of component stats:
 
@@ -626,7 +624,7 @@ These are normalized **[0–100]** composites built from z-scores of component s
 
 # ===================== MAIN =================
 st.title("⚽ Composite Metrics & Radar")
-st.caption("Integrated with radar.py composites + physical/technical composites")
+st.caption("Integrated with composite metrics + physical/technical composites")
 
 df = None
 if demo_mode:
@@ -636,7 +634,6 @@ if demo_mode:
         "Team": ["X","Y","Z"],
         "Position": ["CF","RW","DMF"],
         "Minutes played": [900, 880, 910],
-        # core attacking
         "Successful attacking actions per 90":[5,7,2],
         "xG per 90":[0.3,0.2,0.1],
         "xA per 90":[0.2,0.4,0.05],
@@ -648,7 +645,6 @@ if demo_mode:
         "Smart passes per 90":[0.4,0.5,0.2],
         "Crosses to goalie box per 90":[0.1,0.3,0.0],
         "Touches in box per 90":[3.5,4.0,1.2],
-        # auxiliary for derived
         "xG":[6.0, 4.8, 1.2],
         "Goals":[5,4,1],
         "Penalties taken":[1,0,0],
@@ -656,7 +652,6 @@ if demo_mode:
         "Shot assists per 90":[0.5,0.8,0.2],
         "Second assists per 90":[0.1,0.2,0.0],
         "Accurate passes %":[82,78,90],
-        "Smart passes per 90":[0.4,0.5,0.2],
         "Through passes per 90":[0.3,0.6,0.1],
         "Accurate smart passes, %":[55,52,60],
         "Accurate through passes, %":[42,38,50],
@@ -666,7 +661,6 @@ if demo_mode:
         "Dribbles per 90":[2.0,3.5,0.8],
         "Successful dribbles, %":[55,48,52],
         "Accelerations per 90":[1.2,1.8,0.6],
-        # defensive
         "Successful defensive actions per 90":[4.0,2.0,6.0],
         "Defensive duels per 90":[5.0,3.0,8.0],
         "Defensive duels won, %":[60,55,68],
@@ -675,7 +669,6 @@ if demo_mode:
         "PAdj Sliding tackles":[0.3,0.1,0.7],
         "PAdj Interceptions":[0.8,0.4,1.2],
         "Shots blocked per 90":[0.2,0.1,0.5],
-        # passing volume/accuracy
         "Passes per 90":[35,42,55],
         "Received passes per 90":[12,14,10],
         "Touches per 90":[50,48,62],
@@ -695,7 +688,6 @@ if demo_mode:
         "Fouls per 90":[1.5,1.8,2.2],
         "Yellow cards per 90":[0.2,0.15,0.25],
         "Red cards per 90":[0.01,0.0,0.02],
-        # physical (per 90)
         "Distance P90":[10000,9800,10500],
         "Running Distance P90":[8000,7800,8200],
         "HI Distance P90":[1500,1300,1100],
@@ -722,6 +714,16 @@ else:
 if df is None or df.empty:
     st.stop()
 
+# Enforce presence of Minutes played and filter
+if "Minutes played" not in df.columns:
+    st.error("Arquivo não possui a coluna 'Minutes played'. Renomeie a coluna para exatamente 'Minutes played' e reenvié.")
+    st.stop()
+
+before = df.shape[0]
+df = df[df["Minutes played"].fillna(0) >= int(min_minutes)].copy()
+after = df.shape[0]
+st.caption(f"Min minutes filter: showing {after} of {before} players (≥ {int(min_minutes)} min)")
+
 # ===================== KPIs =====================
 st.subheader("Overview")
 col1, col2, col3, col4 = st.columns(4)
@@ -732,6 +734,7 @@ with col4: st.markdown(f"<div class='metric-card'><div class='subtle small'>Colu
 
 # ===================== Rankings =====================
 st.markdown("<div class='section'>Rankings</div>", unsafe_allow_html=True)
+
 def _leaderboard(metric):
     d = df.copy()
     if team_filter:
@@ -740,10 +743,8 @@ def _leaderboard(metric):
         d = d[d["Position"].astype(str).str.contains(pos_filter)]
     id_cols = [c for c in ID_COLS_CANDIDATES if c in d.columns]
     cols = id_cols + [
-        # our composites
         "Work Rate Offensive","Offensive Intensity","Offensive Explosion",
         "Work Rate Defensive","Defensive Intensity","Defensive Explosion",
-        # radar.py composites
         "Creativity","Progression","Defence","Passing Quality","Aerial Defence","Involvement","Discipline",
         "xG Buildup","Box Threat","Finishing","Poaching","Aerial Threat","npxG per 90","npxG per Shot","G-xG",
     ]
@@ -762,12 +763,10 @@ with t4: _leaderboard("Work Rate Defensive")
 with t5: _leaderboard("Defensive Intensity")
 with t6: _leaderboard("Defensive Explosion")
 
-# ===================== Radar Generator (multi-preset up to 3) =====================
+# ===================== Radar Generator =====================
 st.markdown("<div class='section'>Radar Generator</div>", unsafe_allow_html=True)
 
 def _merge_presets(preset_names: list[str], df: pd.DataFrame) -> list[str]:
-    """Merge metrics from multiple presets, preserve order, drop duplicates,
-       include only metrics that exist in df and have at least one non-NaN."""
     merged = []
     for p in preset_names:
         for m in PRESETS.get(p, []):
