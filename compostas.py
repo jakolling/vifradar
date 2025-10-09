@@ -383,34 +383,87 @@ def _zscore(series: pd.Series) -> pd.Series:
             parts.append(_zscore(s) * w)
     if parts: df["Aerial Defence"] = sum(parts)
 
-    # Normalize to [0,100]
-    main_derived = [
-        "npxG","npxG per 90","npxG per Shot","Box Threat","xG Buildup","Creativity","Progression",
-        "Defence","Involvement","Discipline","G-xG","Poaching","Finishing","Aerial Threat","Passing Quality","Aerial Defence"
-    ]
-    for m in main_derived:
-        if m in df.columns:
-            s = pd.to_numeric(df[m], errors="coerce")
-            if s.notna().sum() > 1:
-                lo, hi = np.nanmin(s), np.nanmax(s)
-                if np.isfinite(lo) and np.isfinite(hi) and hi != lo:
-                    df[m] = (s - lo) / (hi - lo) * 100.0
-                else:
-                    df[m] = 50.0
+    
+
+    # ===================== PERCENTILE NORMALIZATION (robust) =====================
+    MIN_MINUTES_FOR_POP = 300  # ajuste se quiser outro corte
+
+    LOWER_BETTER = {
+        "Conceded goals per 90",
+        "xG against per 90",
+        "Fouls per 90",
+        "Yellow cards per 90",
+        "Red cards per 90",
+    }
+
+    def _winsorize_iqr(s: pd.Series):
+        s = pd.to_numeric(s, errors="coerce")
+        q1 = s.quantile(0.25)
+        q3 = s.quantile(0.75)
+        iqr = q3 - q1
+        if not np.isfinite(iqr) or iqr == 0:
+            return s
+        lo = q1 - 3*iqr
+        hi = q3 + 3*iqr
+        return s.clip(lower=lo, upper=hi)
+
+    def _percentile_ranked(df: pd.DataFrame, metrics: list[str]) -> pd.DataFrame:
+        df = df.copy()
+        if "Minutes played" in df.columns:
+            pop_mask = pd.to_numeric(df["Minutes played"], errors="coerce").fillna(0) >= MIN_MINUTES_FOR_POP
+        else:
+            pop_mask = pd.Series(True, index=df.index)
+
+        pop = df[pop_mask].copy()
+        for m in metrics:
+            if m not in df.columns:
+                continue
+            s_all = pd.to_numeric(df[m], errors="coerce")
+            s_pop = _winsorize_iqr(pd.to_numeric(pop[m], errors="coerce")) if m in pop.columns else None
+            if s_pop is None or s_pop.notna().sum() < 5:
+                # fallback: use global series
+                s_pop = _winsorize_iqr(s_all)
+
+            # determine direction
+            higher_is_better = m not in LOWER_BETTER
+
+            # rank within population, then map all by ECDF of pop
+            # Using rank(pct=True) with ascending reversed for higher better
+            ranks = s_pop.rank(pct=True, method="average", ascending=not higher_is_better)
+            # map values in df to percentile by their position relative to pop distribution
+            # We'll compute percentiles by counting proportion of pop <= value (or >= when higher better)
+            # Efficient approach: sort pop and use searchsorted
+            vals_pop = s_pop.dropna().sort_values().values
+            if vals_pop.size == 0:
+                df[m] = np.nan
+                continue
+
+            import numpy as _np
+            if higher_is_better:
+                # percentile = proportion of pop <= v
+                def perc(v):
+                    if not _np.isfinite(v): return _np.nan
+                    # index of insertion to the right (includes equal values)
+                    idx = _np.searchsorted(vals_pop, v, side="right")
+                    return 100.0 * (idx / vals_pop.size)
             else:
-                df[m] = 50.0
+                # lower is better: percentile = proportion of pop >= v
+                def perc(v):
+                    if not _np.isfinite(v): return _np.nan
+                    # number >= v is size - index of left insertion
+                    idx = _np.searchsorted(vals_pop, v, side="left")
+                    return 100.0 * ((vals_pop.size - idx) / vals_pop.size)
 
-    # Invert negatives if present
-    for m in ["Conceded goals per 90","xG against per 90","Fouls per 90","Yellow cards per 90","Red cards per 90"]:
-        if m in df.columns:
-            s = pd.to_numeric(df[m], errors="coerce")
-            if s.notna().sum() > 1:
-                hi, lo = np.nanmax(s), np.nanmin(s)
-                if hi != lo: df[m] = (hi - s) / (hi - lo) * 100.0
-                else: df[m] = 50.0
-    return df
+            df[m] = s_all.apply(perc)
 
-# ===================== OUR OFF/DEF COMPOSITES =====================
+        return df
+
+        main_derived = [
+            "npxG","npxG per 90","npxG per Shot","Box Threat","xG Buildup","Creativity","Progression",
+            "Defence","Involvement","Discipline","G-xG","Poaching","Finishing","Aerial Threat","Passing Quality","Aerial Defence"
+        ]
+    
+        df = _percentile_ranked(df, main_derived)# ===================== OUR OFF/DEF COMPOSITES =====================
 def compute_offensive_production(df: pd.DataFrame, weights: dict[str, float]) -> pd.Series:
     df = _ensure_cols(df, OFFENSIVE_COMPONENTS)
     s = pd.Series(0.0, index=df.index)
@@ -1000,112 +1053,3 @@ st.download_button(
     file_name="composite_metrics_base.csv",
     mime="text/csv",
 )
-
-
-
-# ===================== A4 Radar + Thin Bars =====================
-
-def make_radar_bars_png_a4(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
-                           color_a: str = "#1f77b4", color_b: str = "#ff7f0e") -> bytes:
-    """
-    Gera PNG em A4 (8.27x11.69 pol.), com o radar ocupando ~3/4 da página e
-    uma faixa de barras finas na parte inferior (~1/4).
-    As barras mostram o valor normalizado dentro do range do radar.
-    """
-    import io
-    df = compute_derived_metrics(df)
-    metrics = list(metrics)
-
-    # Bounds para o radar e normalização
-    if "_bounds_from_df" in globals():
-        lowers, uppers = _bounds_from_df(df, metrics)
-    else:
-        # fallback simples
-        lowers, uppers = [], []
-        for m in metrics:
-            s = pd.to_numeric(df[m], errors="coerce") if m in df.columns else pd.Series(dtype=float)
-            if s.notna().sum() == 0:
-                lo, hi = -2.0, 2.0
-            else:
-                lo = float(np.nanmin(s.values)); hi = float(np.nanmax(s.values))
-                if not np.isfinite(lo) or not np.isfinite(hi) or hi == lo:
-                    span = abs(hi) if np.isfinite(hi) else 1.0
-                    lo, hi = hi - 0.5*max(1.0, span), hi + 0.5*max(1.0, span)
-            if hi <= lo: hi = lo + 1.0
-            lowers.append(lo); uppers.append(hi)
-
-    radar = Radar(metrics, lowers, uppers, num_rings=4)
-
-    def _get_row(name):
-        sel = df[df["Player"] == name].head(1)
-        return sel.iloc[0] if not sel.empty else None
-
-    row_a = _get_row(player_a)
-    if row_a is None:
-        raise ValueError(f"Player '{player_a}' not found.")
-    row_b = _get_row(player_b) if player_b else None
-
-    vals_a = [float(row_a.get(m, np.nan)) for m in metrics]
-    vals_b = [float(row_b.get(m, np.nan)) for m in metrics] if row_b is not None else None
-
-    # A4 portrait
-    a4 = (8.27, 11.69)
-    fig = plt.figure(figsize=a4, dpi=300)
-    gs = GridSpec(2, 1, figure=fig, height_ratios=[3, 1], hspace=0.2)
-
-    # Radar (top 3/4)
-    ax_radar = fig.add_subplot(gs[0, 0], projection="polar")
-    radar.setup_axis(ax=ax_radar)
-    radar.draw_circles(ax=ax_radar)
-    radar.draw_range_labels(ax=ax_radar)
-    radar.draw_param_labels(ax=ax_radar)
-
-    radar.draw_radar_compare(vals_a, vals_b, ax=ax_radar,
-                             kwargs_radar={'facecolor': color_a, 'alpha': 0.35},
-                             kwargs_compare={'facecolor': color_b, 'alpha': 0.35} if vals_b else None,
-                             kwargs_rings={'lw': 0.8, 'ls': '--'})
-
-    title = player_a if not player_b else f"{player_a} vs {player_b}"
-    ax_radar.set_title(title, fontsize=14, pad=16)
-
-    # Thin bars (bottom 1/4)
-    ax_bar = fig.add_subplot(gs[1, 0])
-    ax_bar.set_axisbelow(True)
-
-    # normalize to [0,1] using same bounds
-    def _norm(v, lo, hi):
-        if not np.isfinite(v) or not np.isfinite(lo) or not np.isfinite(hi) or hi == lo:
-            return np.nan
-        return (v - lo) / (hi - lo)
-
-    n = len(metrics)
-    y = np.arange(n)
-    norm_a = [_norm(vals_a[i], lowers[i], uppers[i]) for i in range(n)]
-    ax_bar.barh(y, norm_a, height=0.25, label=player_a, color=color_a, alpha=0.6)
-
-    if vals_b is not None:
-        norm_b = [_norm(vals_b[i], lowers[i], uppers[i]) for i in range(n)]
-        ax_bar.barh(y + 0.28, norm_b, height=0.25, label=player_b, color=color_b, alpha=0.6)
-        ax_bar.set_yticks(y + 0.14, metrics, fontsize=8)
-    else:
-        ax_bar.set_yticks(y, metrics, fontsize=8)
-
-    ax_bar.set_xlim(0, 1)
-    ax_bar.invert_yaxis()
-    ax_bar.grid(axis="x", linestyle="--", linewidth=0.5, alpha=0.5)
-    ax_bar.tick_params(axis='x', labelsize=8)
-    ax_bar.legend(loc="lower right", fontsize=8, frameon=False)
-
-    fig.tight_layout()
-
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=300, bbox_inches="tight")
-    plt.close(fig)
-    buf.seek(0)
-    return buf.getvalue()
-
-def save_radar_a4_png(path: str, df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
-                      color_a: str = "#1f77b4", color_b: str = "#ff7f0e"):
-    data = make_radar_bars_png_a4(df, player_a, player_b, metrics, color_a, color_b)
-    with open(path, "wb") as f:
-        f.write(data)
