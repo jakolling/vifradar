@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 import io
 import numpy as np
@@ -463,7 +462,6 @@ def compute_composite_metrics(df: pd.DataFrame, off_weights: dict[str, float]) -
         df["Offensive Explosion"] = safe_ratio(df["Prod_Ofensiva_p90"], exp_events)
         df["Defensive Explosion"] = safe_ratio(df["Prod_Defensiva_p90"], exp_events)
 
-    # enforce Minutes played existence
     if "Minutes played" not in df.columns:
         raise ValueError("A coluna 'Minutes played' não foi encontrada no arquivo enviado. Certifique-se de manter exatamente esse nome.")
     return df
@@ -622,7 +620,7 @@ These are normalized **[0–100]** composites built from z-scores of component s
     st.info("All metrics are scaled and normalized to ensure fair comparisons across players.")
     st.stop()
 
-# ===================== MAIN =================
+# ===================== MAIN =====================
 st.title("⚽ Composite Metrics & Radar")
 st.caption("Integrated with composite metrics + physical/technical composites")
 
@@ -763,7 +761,7 @@ with t4: _leaderboard("Work Rate Defensive")
 with t5: _leaderboard("Defensive Intensity")
 with t6: _leaderboard("Defensive Explosion")
 
-# ===================== Radar Generator =====================
+# ===================== Radar Generator (with ranking bars) =====================
 st.markdown("<div class='section'>Radar Generator</div>", unsafe_allow_html=True)
 
 def _merge_presets(preset_names: list[str], df: pd.DataFrame) -> list[str]:
@@ -773,6 +771,64 @@ def _merge_presets(preset_names: list[str], df: pd.DataFrame) -> list[str]:
             if m in df.columns and df[m].notna().any() and m not in merged:
                 merged.append(m)
     return merged
+
+def _metric_rank_info(dfin: pd.DataFrame, metric: str, player_name: str):
+    s = pd.to_numeric(dfin[metric], errors="coerce")
+    mask = s.notna()
+    s = s[mask]
+    d = dfin.loc[mask]
+    total = int(s.shape[0]) if s.shape[0] > 0 else 0
+    if total == 0:
+        return {"rank": None, "total": 0, "value": np.nan, "norm": 0.0, "ascending": False}
+    ascending = metric in NEGATE_METRICS
+    r = s.rank(ascending=ascending, method="min")
+    try:
+        player_idx = d.index[d["Player"] == player_name]
+        if player_idx.empty:
+            return {"rank": None, "total": total, "value": np.nan, "norm": 0.0, "ascending": ascending}
+        val = float(s.loc[player_idx[0]]) if player_idx[0] in s.index else np.nan
+        rk = int(r.loc[player_idx[0]]) if player_idx[0] in r.index and not np.isnan(r.loc[player_idx[0]]) else None
+    except Exception:
+        val, rk = np.nan, None
+    vmin, vmax = float(np.nanmin(s)), float(np.nanmax(s))
+    if not np.isfinite(vmin) or not np.isfinite(vmax) or vmax == vmin or not np.isfinite(val):
+        norm = 0.5
+    else:
+        raw = (val - vmin) / (vmax - vmin)
+        norm = 1.0 - raw if ascending else raw
+    return {"rank": rk, "total": total, "value": val, "norm": float(np.clip(norm, 0, 1)), "ascending": ascending}
+
+def render_metric_rank_bars(dfin: pd.DataFrame, player_a: str, metrics: list[str], player_b: str | None = None):
+    if not metrics:
+        return
+    st.markdown("### 📊 Ranking por métrica")
+    st.caption("Barra indica desempenho relativo; rótulo mostra a posição no ranking (1 = melhor).")
+
+    def _render_for(player_name: str, header: str):
+        st.markdown(f"**{header}:** {player_name}")
+        cols_per_row = 3
+        for i, m in enumerate(metrics):
+            if i % cols_per_row == 0:
+                cols = st.columns(cols_per_row)
+            c = cols[i % cols_per_row]
+            with c:
+                info = _metric_rank_info(dfin, m, player_name)
+                rk, tot, val, norm = info["rank"], info["total"], info["value"], info["norm"]
+                label = f"{m} — {rk}/{tot}" if rk is not None else f"{m} — n/a"
+                fig, ax = plt.subplots(figsize=(4, 0.6))
+                ax.barh([0], [norm])
+                ax.set_xlim(0, 1)
+                ax.set_yticks([])
+                ax.set_xticks([0, 0.5, 1])
+                ax.set_xticklabels(["0%","50%","100%"], fontsize=7)
+                ax.set_title(label, fontsize=9, pad=2)
+                for spine in ["top","right","left"]:
+                    ax.spines[spine].set_visible(False)
+                st.pyplot(fig, use_container_width=True)
+
+    _render_for(player_a, "Jogador A")
+    if player_b:
+        _render_for(player_b, "Jogador B")
 
 colA, colB = st.columns([1, 2])
 with colA:
@@ -812,6 +868,7 @@ with colA:
 with colB:
     if p1 and metrics_sel:
         plot_radar(df, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b)
+        render_metric_rank_bars(df, p1, metrics_sel, None if p2 == "—" else p2)
 
 # ===================== Export =====================
 st.markdown("<div class='section'>Export</div>", unsafe_allow_html=True)
