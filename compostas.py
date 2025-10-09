@@ -1000,3 +1000,112 @@ st.download_button(
     file_name="composite_metrics_base.csv",
     mime="text/csv",
 )
+
+
+
+# ===================== A4 Radar + Thin Bars =====================
+
+def make_radar_bars_png_a4(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
+                           color_a: str = "#1f77b4", color_b: str = "#ff7f0e") -> bytes:
+    """
+    Gera PNG em A4 (8.27x11.69 pol.), com o radar ocupando ~3/4 da página e
+    uma faixa de barras finas na parte inferior (~1/4).
+    As barras mostram o valor normalizado dentro do range do radar.
+    """
+    import io
+    df = compute_derived_metrics(df)
+    metrics = list(metrics)
+
+    # Bounds para o radar e normalização
+    if "_bounds_from_df" in globals():
+        lowers, uppers = _bounds_from_df(df, metrics)
+    else:
+        # fallback simples
+        lowers, uppers = [], []
+        for m in metrics:
+            s = pd.to_numeric(df[m], errors="coerce") if m in df.columns else pd.Series(dtype=float)
+            if s.notna().sum() == 0:
+                lo, hi = -2.0, 2.0
+            else:
+                lo = float(np.nanmin(s.values)); hi = float(np.nanmax(s.values))
+                if not np.isfinite(lo) or not np.isfinite(hi) or hi == lo:
+                    span = abs(hi) if np.isfinite(hi) else 1.0
+                    lo, hi = hi - 0.5*max(1.0, span), hi + 0.5*max(1.0, span)
+            if hi <= lo: hi = lo + 1.0
+            lowers.append(lo); uppers.append(hi)
+
+    radar = Radar(metrics, lowers, uppers, num_rings=4)
+
+    def _get_row(name):
+        sel = df[df["Player"] == name].head(1)
+        return sel.iloc[0] if not sel.empty else None
+
+    row_a = _get_row(player_a)
+    if row_a is None:
+        raise ValueError(f"Player '{player_a}' not found.")
+    row_b = _get_row(player_b) if player_b else None
+
+    vals_a = [float(row_a.get(m, np.nan)) for m in metrics]
+    vals_b = [float(row_b.get(m, np.nan)) for m in metrics] if row_b is not None else None
+
+    # A4 portrait
+    a4 = (8.27, 11.69)
+    fig = plt.figure(figsize=a4, dpi=300)
+    gs = GridSpec(2, 1, figure=fig, height_ratios=[3, 1], hspace=0.2)
+
+    # Radar (top 3/4)
+    ax_radar = fig.add_subplot(gs[0, 0], projection="polar")
+    radar.setup_axis(ax=ax_radar)
+    radar.draw_circles(ax=ax_radar)
+    radar.draw_range_labels(ax=ax_radar)
+    radar.draw_param_labels(ax=ax_radar)
+
+    radar.draw_radar_compare(vals_a, vals_b, ax=ax_radar,
+                             kwargs_radar={'facecolor': color_a, 'alpha': 0.35},
+                             kwargs_compare={'facecolor': color_b, 'alpha': 0.35} if vals_b else None,
+                             kwargs_rings={'lw': 0.8, 'ls': '--'})
+
+    title = player_a if not player_b else f"{player_a} vs {player_b}"
+    ax_radar.set_title(title, fontsize=14, pad=16)
+
+    # Thin bars (bottom 1/4)
+    ax_bar = fig.add_subplot(gs[1, 0])
+    ax_bar.set_axisbelow(True)
+
+    # normalize to [0,1] using same bounds
+    def _norm(v, lo, hi):
+        if not np.isfinite(v) or not np.isfinite(lo) or not np.isfinite(hi) or hi == lo:
+            return np.nan
+        return (v - lo) / (hi - lo)
+
+    n = len(metrics)
+    y = np.arange(n)
+    norm_a = [_norm(vals_a[i], lowers[i], uppers[i]) for i in range(n)]
+    ax_bar.barh(y, norm_a, height=0.25, label=player_a, color=color_a, alpha=0.6)
+
+    if vals_b is not None:
+        norm_b = [_norm(vals_b[i], lowers[i], uppers[i]) for i in range(n)]
+        ax_bar.barh(y + 0.28, norm_b, height=0.25, label=player_b, color=color_b, alpha=0.6)
+        ax_bar.set_yticks(y + 0.14, metrics, fontsize=8)
+    else:
+        ax_bar.set_yticks(y, metrics, fontsize=8)
+
+    ax_bar.set_xlim(0, 1)
+    ax_bar.invert_yaxis()
+    ax_bar.grid(axis="x", linestyle="--", linewidth=0.5, alpha=0.5)
+    ax_bar.tick_params(axis='x', labelsize=8)
+    ax_bar.legend(loc="lower right", fontsize=8, frameon=False)
+
+    fig.tight_layout()
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    buf.seek(0)
+    return buf.getvalue()
+
+def save_radar_a4_png(path: str, df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
+                      color_a: str = "#1f77b4", color_b: str = "#ff7f0e"):
+    data = make_radar_bars_png_a4(df, player_a, player_b, metrics, color_a, color_b)
+    with open(path, "wb") as f:
+        f.write(data)
