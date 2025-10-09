@@ -1,145 +1,47 @@
 
 from __future__ import annotations
+
 import io
 import math
+from typing import List, Optional, Tuple
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import streamlit as st
-import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.gridspec import GridSpec
 from mplsoccer import Radar
 
-# ===================== CONFIG & STYLE =====================
+
+# ========================= PAGE CONFIGURATION AND STYLES =========================
 st.set_page_config(
-    page_title="Composite Metrics & Radar",
+    page_title="Composite Football Metrics and Radar",
     page_icon="⚽",
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
 st.markdown(
     """
     <style>
     .metric-card {padding: 1rem; border: 1px solid rgba(49,51,63,0.2); border-radius: 12px;}
     .section {margin-top: .75rem; margin-bottom: .25rem; font-weight: 600; opacity: .9}
     .subtle {color: rgba(49,51,63,0.6)}
-    .stTabs [data-baseweb="tab-list"] {gap: 12px}
-    .stTabs [data-baseweb="tab"] {background: #f6f6f9; padding: 8px 14px; border-radius: 10px;}
     .small {font-size: 0.9rem}
+    .tight {margin-top: .25rem; margin-bottom: .25rem}
+    .muted {color: #5c5f66}
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# ===================== CONSTANTS =====================
-OFFENSIVE_COMPONENTS = [
-    "Successful attacking actions per 90",
-    "xG per 90",
-    "xA per 90",
-    "Key passes per 90",
-    "Deep completions per 90",
-    "Deep completed crosses per 90",
-    "Progressive runs per 90",
-    "Passes to penalty area per 90",
-    "Smart passes per 90",
-    "Crosses to goalie box per 90",
-    "Touches in box per 90",
-]
-DEFAULT_OFF_WEIGHTS = {
-    "Successful attacking actions per 90": 1.0,
-    "xG per 90": 1.0,
-    "xA per 90": 1.0,
-    "Key passes per 90": 1.0,
-    "Deep completions per 90": 1.0,
-    "Deep completed crosses per 90": 0.8,
-    "Progressive runs per 90": 0.6,
-    "Passes to penalty area per 90": 0.8,
-    "Smart passes per 90": 0.5,
-    "Crosses to goalie box per 90": 0.4,
-    "Touches in box per 90": 0.4,
-}
-PHYS_COLS = {
-    "distance_total_m": "Distance P90",
-    "running_m": "Running Distance P90",
-    "hi_m": "HI Distance P90",
-    "hsr_m": "HSR Distance P90",
-    "sprint_m": "Sprint Distance P90",
-    "hsr_cnt": "HSR Count P90",
-    "sprint_cnt": "Sprint Count P90",
-    "expl_hsr_cnt": "Explosive Acceleration to HSR Count P90",
-    "expl_sprint_cnt": "Explosive Acceleration to Sprint Count P90",
-}
-DEF_COLS = [
-    "Successful defensive actions per 90",
-    "Defensive duels per 90",
-    "Defensive duels won, %",
-    "Aerial duels per 90",
-    "Aerial duels won, %",
-    "PAdj Sliding tackles",
-    "PAdj Interceptions",
-    "Shots blocked per 90",
-]
-GK_METRICS = [
-    "Save rate, %","Prevented goals per 90","Conceded goals per 90","Shots against per 90","Clean sheets",
-    "Back passes received as GK per 90","xG against","xG against per 90","Prevented goals","Shots against",
-    "Conceded goals","Exits per 90",
-]
-ID_COLS_CANDIDATES = ["Player", "Short Name", "Team", "Position", "Minutes played", "Minutes"]
 
-PRESETS = {
-    "forward": [
-        "npxG per 90","xG per 90","Shots per 90","Shots on target, %",
-        "xA per 90","Key passes per 90","Touches in box per 90",
-        "Progressive runs per 90","Deep completions per 90",
-        "Finishing","Poaching","Aerial Threat",
-        "Work Rate Offensive","Offensive Intensity","Offensive Explosion",
-    ],
-    "winger": [
-        "Dribbles per 90","Dribbles won, %","Crosses per 90","Accurate crosses, %",
-        "Deep completed crosses per 90","Progressive runs per 90","xA per 90","Key passes per 90",
-        "Creativity","Progression",
-        "Work Rate Offensive","Offensive Intensity","Offensive Explosion",
-    ],
-    "attacking_midfielder": [
-        "Creativity","Progression","xA per 90","Key passes per 90","Smart passes per 90",
-        "Deep completions per 90","xG Buildup",
-        "Work Rate Offensive","Offensive Intensity","Offensive Explosion",
-    ],
-    "central_midfielder": [
-        "Progression","Passing Quality","Creativity","xG Buildup",
-        "PAdj Interceptions","Successful defensive actions per 90",
-        "Work Rate Defensive","Defensive Intensity",
-    ],
-    "defensive_midfielder": [
-        "Defence","Progression","Passing Quality","Discipline","Involvement",
-        "xG Buildup","PAdj Interceptions","Successful defensive actions per 90",
-        "Work Rate Defensive","Defensive Intensity","Defensive Explosion",
-    ],
-    "full_back": [
-        "Progression","Creativity","Passing Quality","Defence","Aerial Defence",
-        "Deep completed crosses per 90","Progressive runs per 90","Crosses per 90",
-        "Work Rate Defensive","Defensive Intensity","Defensive Explosion",
-    ],
-    "center_back": [
-        "Defence","Aerial Defence","Aerial duels per 90","Aerial duels won, %",
-        "Defensive duels per 90","Defensive duels won, %","PAdj Interceptions","PAdj Sliding tackles",
-        "Passes to final third per 90","Accurate passes %",
-        "Work Rate Defensive","Defensive Intensity","Defensive Explosion",
-    ],
-    "goalkeeper": GK_METRICS + [
-        "Passes per 90","Accurate passes, %","Long passes per 90","Accurate long passes, %","Aerial duels per 90","Aerial duels won, %"
-    ],
-    "general_summary": ["Involvement","Box Threat","Creativity","xG Buildup","Progression","Defence","Discipline","Passing Quality"],
-    "defensive_actions": ["Defence","Aerial Defence","PAdj Interceptions","Successful defensive actions per 90","Defensive duels won, %","Shots blocked per 90","Discipline"],
-    "playmaking": ["Creativity","Passing Quality","Progression","xG Buildup","Successful attacking actions per 90","Deep completions per 90","Involvement","Key passes per 90"],
-    "aerial_duels": ["Aerial Threat","Aerial Defence","Aerial duels per 90","Aerial duels won, %","Head goals per 90","Involvement","Defence"],
-    "shooting": ["npxG per 90","npxG per Shot","Finishing","Goal conversion, %","Shots on target, %","G-xG","Box Threat"],
-    "counter_attack": ["Progression","Accelerations per 90","Dribbles per 90","Successful dribbles, %","npxG per 90","Finishing","Box Threat"],
-    "build_up": ["Passing Quality","Progression","xG Buildup","Deep completions per 90","Involvement","Creativity","Discipline"],
-    "crossing": ["Crossing","Accurate crosses, %","Deep completed crosses per 90","xA per 90","Shot assists per 90","Creativity","Passing Quality"],
-    "striker": ["npxG per 90","npxG per Shot","Finishing","Poaching","Aerial Threat","Box Threat","Involvement","Touches in box per 90"],
-}
+# ========================= CONSTANTS AND SETTINGS =========================
+IDENTITY_COLUMNS = ["Player", "Short Name", "Team", "Position", "Minutes played", "Minutes"]
 
-NEGATE_METRICS = {
+# Metrics where lower values are better
+NEGATIVE_DIRECTION_METRICS = {
     "Conceded goals per 90": True,
     "xG against per 90": True,
     "Fouls per 90": True,
@@ -147,25 +49,31 @@ NEGATE_METRICS = {
     "Red cards per 90": True,
 }
 
-# ===================== HELPERS =====================
+PENALTY_XG_COEFFICIENT = 0.76
+
+
+# ========================= UTILITY FUNCTIONS =========================
 @st.cache_data(show_spinner=False)
-def _load_excel(file: io.BytesIO) -> pd.DataFrame:
+def read_excel_file(uploaded_file: io.BytesIO) -> pd.DataFrame:
     try:
-        return pd.read_excel(file, sheet_name=0)
+        return pd.read_excel(uploaded_file, sheet_name="Merged")
     except Exception:
-        file.seek(0)
-        return pd.read_excel(file)
+        uploaded_file.seek(0)
+        try:
+            return pd.read_excel(uploaded_file, sheet_name=0)
+        except Exception:
+            uploaded_file.seek(0)
+            return pd.read_excel(uploaded_file)
 
-def _ensure_cols(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
-    for c in cols:
-        if c not in df.columns:
-            df[c] = np.nan
-    return df
 
-def _safe_s(df: pd.DataFrame, col: str) -> pd.Series:
-    return df[col].astype(float).fillna(0) if col in df.columns else pd.Series(0.0, index=df.index)
+def ensure_columns_exist(dataframe: pd.DataFrame, column_names: List[str]) -> pd.DataFrame:
+    for name in column_names:
+        if name not in dataframe.columns:
+            dataframe[name] = np.nan
+    return dataframe
 
-def _zscore(series: pd.Series) -> pd.Series:
+
+def zscore(series: pd.Series) -> pd.Series:
     s = pd.to_numeric(series, errors="coerce")
     m = s.mean(skipna=True)
     sd = s.std(skipna=True, ddof=0)
@@ -173,353 +81,165 @@ def _zscore(series: pd.Series) -> pd.Series:
         return pd.Series(0.0, index=s.index)
     return (s - m) / sd
 
-# ===================== DERIVED METRICS =====================
-def compute_derived_metrics(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    needed = set([
-        "xG","Penalties taken","Goals","Shots","Touches in box per 90",
-        "xA per 90","Shot assists per 90","Key passes per 90","Deep completions per 90",
-        "Deep completed crosses per 90","Accurate passes %","Accurate passes, %",
-        "Smart passes per 90","Through passes per 90","Passes to penalty area per 90",
-        "Accurate smart passes, %","Accurate through passes, %","Accurate passes to penalty area, %",
-        "Progressive passes per 90","Progressive runs per 90","Dribbles per 90","Accelerations per 90",
-        "Accurate progressive passes, %","Successful dribbles, %",
-        "Successful defensive actions per 90","PAdj Interceptions","Shots blocked per 90","PAdj Sliding tackles",
-        "Defensive duels per 90","Defensive duels won, %","Aerial duels won, %","Aerial duels per 90",
-        "Passes to final third per 90","Accurate passes to final third, %","Forward passes per 90","Accurate forward passes, %",
-        "Long passes per 90","Accurate long passes, %","Lateral passes per 90","Accurate lateral passes, %",
-        "Back passes per 90","Accurate back passes, %","Passes per 90",
-        "Head goals per 90","Goal conversion, %","Received passes per 90",
-        "Fouls per 90","Yellow cards per 90","Red cards per 90",
-        "Minutes played"
-    ])
-    _ensure_cols(df, list(needed))
 
-    # npxG & friends
-    if "xG" in df and "Penalties taken" in df:
-        df["npxG"] = (df["xG"] - (df["Penalties taken"].fillna(0) * 0.81))
-        df["npxG"] = _zscore(df["npxG"])
-    if "Goals" in df and "xG" in df:
-        df["G-xG"] = _zscore(df["Goals"] - df["xG"])
-    if "npxG" in df and "Minutes played" in df:
-        with np.errstate(divide="ignore", invalid="ignore"):
-            df["npxG per 90"] = df["npxG"] / (df["Minutes played"].replace(0, np.nan) / 90)
-        df["npxG per 90"] = _zscore(df["npxG per 90"])
-    if "npxG" in df and "Shots" in df:
-        with np.errstate(divide="ignore", invalid="ignore"):
-            df["npxG per Shot"] = df["npxG"] / df["Shots"].replace(0, np.nan)
-        df["npxG per Shot"] = _zscore(df["npxG per Shot"])
+def normalize_0_100(s: pd.Series) -> pd.Series:
+    s = pd.to_numeric(s, errors="coerce").replace([np.inf, -np.inf], np.nan)
+    if s.notna().sum() > 1:
+        lo, hi = np.nanmin(s), np.nanmax(s)
+        if np.isfinite(lo) and np.isfinite(hi) and hi != lo:
+            return (s - lo) / (hi - lo) * 100.0
+    return pd.Series(50.0, index=s.index)
+
+
+# ========================= DERIVED METRICS =========================
+def compute_derived_metrics(dataframe: pd.DataFrame) -> pd.DataFrame:
+    df = dataframe.copy()
+
+    minutes_column = "Minutes played" if "Minutes played" in df.columns else ("Minutes" if "Minutes" in df.columns else None)
+    if minutes_column is None:
+        raise ValueError("A coluna de minutos não foi encontrada. Inclua 'Minutes played' ou 'Minutes'.")
+
+    ensure_columns_exist(df, ["xG", "Penalties taken", "Shots", minutes_column])
+
+    # Penalty xG
+    pen_cols = ["Penalty xG", "xG (penalties)", "xG from penalties", "xG pens"]
+    pen_xg = None
+    for c in pen_cols:
+        if c in df.columns:
+            pen_xg = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
+            break
+    if pen_xg is None:
+        pen_xg = pd.to_numeric(df.get("Penalties taken", 0.0), errors="coerce").fillna(0.0) * PENALTY_XG_COEFFICIENT
+
+    xg = pd.to_numeric(df.get("xG", 0.0), errors="coerce").fillna(0.0)
+    df["npxG_raw"] = np.clip(xg - pen_xg, a_min=0.0, a_max=None)
+
+    minutes = pd.to_numeric(df[minutes_column], errors="coerce")
+    with np.errstate(divide="ignore", invalid="ignore"):
+        df["npxG per 90"] = df["npxG_raw"] / (minutes / 90.0)
+    df["npxG per 90"] = df["npxG per 90"].replace([np.inf, -np.inf], np.nan)
+
+    shots = pd.to_numeric(df.get("Shots", np.nan), errors="coerce")
+    with np.errstate(divide="ignore", invalid="ignore"):
+        df["npxG per Shot"] = df["npxG_raw"] / shots.replace(0, np.nan)
 
     # Box Threat
-    if "npxG per 90" in df and "Touches in box per 90" in df:
+    if "Touches in box per 90" in df.columns:
+        tib90 = pd.to_numeric(df["Touches in box per 90"], errors="coerce").fillna(0.0)
         with np.errstate(divide="ignore", invalid="ignore"):
-            denom = np.log(df["Touches in box per 90"].fillna(0) + 1)
-            denom = denom.replace(0, np.nan)
-            df["Box Threat"] = _zscore(df["npxG per 90"] / denom)
+            denom = np.log(tib90 + 1.0).replace(0, np.nan)
+            df["Box Threat"] = df["npxG per 90"] / denom
 
-    # xG Buildup
-    xgb_w = {
-        "xA per 90": 3.0, "Shot assists per 90": 3.0, "npxG per 90": 2.5, "Key passes per 90": 2.5,
-        "Deep completions per 90": 2.5, "Deep completed crosses per 90": 2.0, "Second assists per 90": 1.5,
-        "Accurate passes %": 1.0,
-    }
-    parts = []
-    total_w = 0.0
-    for col, w in xgb_w.items():
+    # G-xG (robust numeric coercion; fillna 0 before diff to avoid all-NaN)
+    if "Goals" in df.columns and "xG" in df.columns:
+        goals_num = pd.to_numeric(df["Goals"], errors="coerce").fillna(0.0)
+        xg_num = pd.to_numeric(df["xG"], errors="coerce").fillna(0.0)
+        df["G-xG"] = goals_num - xg_num
+
+    # Normalize visuals
+    for col in ["npxG per 90", "npxG per Shot", "Box Threat", "G-xG"]:
         if col in df.columns:
-            s = df[col].fillna(0)
-            if "%" in col and s.max() > 1:
-                s = s / 100.0
-            parts.append(_zscore(s) * w)
-            total_w += w
-    if parts and total_w > 0:
-        df["xG Buildup"] = sum(parts) / total_w
+            df[col] = normalize_0_100(df[col])
 
-    # Creativity
-    vol = {"Smart passes per 90": 1.0, "Through passes per 90": 0.8, "Passes to penalty area per 90": 0.6}
-    acc = {"Accurate smart passes, %": 1.0, "Accurate through passes, %": 0.9, "Accurate passes to penalty area, %": 0.8, "Accurate passes %": 0.6}
-    vol_scores, acc_scores = [], []
-    for c, w in vol.items():
-        if c in df.columns: vol_scores.append(_zscore(df[c].fillna(0)) * w)
-    for c, w in acc.items():
-        if c in df.columns:
-            s = df[c].fillna(0)
-            if s.max() > 1: s = s/100.0
-            acc_scores.append(_zscore(s) * w)
-    if vol_scores and acc_scores:
-        df["Creativity"] = 0.6 * np.nanmean(vol_scores, axis=0) + 0.4 * np.nanmean(acc_scores, axis=0)
-
-    # Progression
-    prog_vol = {"Progressive passes per 90": 1.0, "Progressive runs per 90": 0.9, "Dribbles per 90": 0.7, "Accelerations per 90": 0.6}
-    prog_acc = {"Accurate progressive passes, %": 1.0, "Successful dribbles, %": 0.8, "Accurate passes %": 0.3}
-    vol_scores, acc_scores = [], []
-    for c, w in prog_vol.items():
-        if c in df.columns: vol_scores.append(_zscore(df[c].fillna(0)) * w)
-    for c, w in prog_acc.items():
-        if c in df.columns:
-            s = df[c].fillna(0)
-            if s.max() > 1: s = s/100.0
-            acc_scores.append(_zscore(s) * w)
-    if vol_scores and acc_scores:
-        df["Progression"] = 0.6 * np.nanmean(vol_scores, axis=0) + 0.4 * np.nanmean(acc_scores, axis=0)
-
-    # Defence
-    def_w = {
-        "Successful defensive actions per 90": 1.5, "PAdj Interceptions": 1.5, "Shots blocked per 90": 1.0,
-        "PAdj Sliding tackles": 1.0, "Defensive duels per 90": 0.5, "Defensive duels won, %": 3.0, "Aerial duels won, %": 1.5,
-    }
-    parts = []; total_w = 0.0
-    for c, w in def_w.items():
-        if c in df.columns:
-            s = df[c].fillna(0)
-            if "%" in c and s.max() > 1: s = s/100.0
-            parts.append(_zscore(s) * w); total_w += w
-    if parts and total_w > 0:
-        df["Defence"] = sum(parts) / total_w
-
-    # Involvement
-    inv_w = {
-        "Passes per 90": .20, "Received passes per 90": .15, "Touches per 90": .05,
-        "Defensive duels per 90": .10, "PAdj Interceptions": .10, "Successful defensive actions per 90": .05,
-        "Touches in box per 90": .10, "Offensive duels per 90": .10, "Progressive runs per 90": .05,
-        "Aerial duels per 90": .10,
-    }
-    parts = []
-    for c, w in inv_w.items():
-        if c in df.columns: parts.append(_zscore(df[c].fillna(0)) * w)
-    if parts: df["Involvement"] = sum(parts)
-
-    # Discipline (negative)
-    if all(c in df.columns for c in ["Fouls per 90","Yellow cards per 90","Red cards per 90"]):
-        penalty = (df["Fouls per 90"].fillna(0)*1.0 + df["Yellow cards per 90"].fillna(0)*2.0 + df["Red cards per 90"].fillna(0)*4.0)
-        df["Discipline"] = -_zscore(penalty)
-
-    # Aux: Non-penalty goals per 90
-    if all(c in df.columns for c in ["Goals","Penalties taken","Minutes played"]):
-        with np.errstate(divide="ignore", invalid="ignore"):
-            df["Non-penalty goals per 90"] = (df["Goals"].fillna(0) - df["Penalties taken"].fillna(0)) / (df["Minutes played"].replace(0, np.nan)/90)
-
-    # Poaching
-    poach_w = {"npxG per Shot": .35, "Goal conversion, %": .30, "Touches in box per 90": -.25,
-               "Received passes per 90": -.20, "Non-penalty goals per 90": .40}
-    parts = []
-    for c, w in poach_w.items():
-        if c in df.columns:
-            s = df[c].fillna(0)
-            if "%" in c and s.max() > 1: s = s/100.0
-            parts.append(_zscore(s) * w)
-    if parts: df["Poaching"] = sum(parts)
-
-    # Finishing
-    fin_w = {"Goal conversion, %": .35, "Non-penalty goals per 90": .30, "Shots on target, %": .25, "G-xG": .15, "npxG per Shot": .10}
-    parts = []
-    for c, w in fin_w.items():
-        if c in df.columns:
-            s = df[c].fillna(0)
-            if "%" in c and s.max() > 1: s = s/100.0
-            parts.append(_zscore(s) * w)
-    if parts: df["Finishing"] = sum(parts)
-
-    # Aerial Threat
-    aer_w = {"Head goals per 90": .35, "Aerial duels per 90": .20, "Aerial duels won, %": .20}
-    parts = []
-    for c, w in aer_w.items():
-        if c in df.columns:
-            s = df[c].fillna(0)
-            if "%" in c and s.max() > 1: s = s/100.0
-            parts.append(_zscore(s) * w)
-    if parts: df["Aerial Threat"] = sum(parts)
-
-    # Passing Quality
-    pq_pairs = {
-        "Passes to final third per 90": ("Accurate passes to final third, %", 0.35),
-        "Forward passes per 90": ("Accurate forward passes, %", 0.30),
-        "Long passes per 90": ("Accurate long passes, %", 0.15),
-        "Lateral passes per 90": ("Accurate lateral passes, %", 0.10),
-        "Back passes per 90": ("Accurate back passes, %", 0.05),
-        "Passes per 90": ("Accurate passes, %", 0.05),
-    }
-    parts = []; total_w = 0.0
-    for vol_col, (acc_col, w) in pq_pairs.items():
-        if vol_col in df.columns and acc_col in df.columns:
-            vol_z = _zscore(df[vol_col].fillna(0))
-            acc = df[acc_col].fillna(0)
-            if acc.max() > 1: acc = acc/100.0
-            acc_z = _zscore(acc)
-            parts.append((0.3*vol_z + 0.7*acc_z) * w); total_w += w
-    if parts and total_w > 0:
-        df["Passing Quality"] = sum(parts) / total_w
-
-    # Aerial Defence
-    ad_w = {"Aerial duels per 90": .35, "Aerial duels won, %": .40, "PAdj Interceptions": .10, "Shots blocked per 90": .10}
-    parts = []
-    for c, w in ad_w.items():
-        if c in df.columns:
-            s = df[c].fillna(0)
-            if "%" in c and s.max() > 1: s = s/100.0
-            parts.append(_zscore(s) * w)
-    if parts: df["Aerial Defence"] = sum(parts)
-
-    # Normalize to [0,100]
-    main_derived = [
-        "npxG","npxG per 90","npxG per Shot","Box Threat","xG Buildup","Creativity","Progression",
-        "Defence","Involvement","Discipline","G-xG","Poaching","Finishing","Aerial Threat","Passing Quality","Aerial Defence"
-    ]
-    for m in main_derived:
-        if m in df.columns:
-            s = pd.to_numeric(df[m], errors="coerce")
-            if s.notna().sum() > 1:
-                lo, hi = np.nanmin(s), np.nanmax(s)
-                if np.isfinite(lo) and np.isfinite(hi) and hi != lo:
-                    df[m] = (s - lo) / (hi - lo) * 100.0
-                else:
-                    df[m] = 50.0
-            else:
-                df[m] = 50.0
-
-    # Invert negatives if present
-    for m in ["Conceded goals per 90","xG against per 90","Fouls per 90","Yellow cards per 90","Red cards per 90"]:
-        if m in df.columns:
-            s = pd.to_numeric(df[m], errors="coerce")
-            if s.notna().sum() > 1:
-                hi, lo = np.nanmax(s), np.nanmin(s)
-                if hi != lo: df[m] = (hi - s) / (hi - lo) * 100.0
-                else: df[m] = 50.0
+    ensure_columns_exist(df, IDENTITY_COLUMNS)
     return df
 
-# ===================== OUR OFF/DEF COMPOSITES =====================
-def compute_offensive_production(df: pd.DataFrame, weights: dict[str, float]) -> pd.Series:
-    df = _ensure_cols(df, OFFENSIVE_COMPONENTS)
-    s = pd.Series(0.0, index=df.index)
-    for col, w in weights.items():
-        if col in df.columns:
-            s = s + _safe_s(df, col) * float(w)
-    return s
 
-def compute_defensive_production(df: pd.DataFrame) -> pd.Series:
-    df = _ensure_cols(df, DEF_COLS)
-    def_eff = _safe_s(df, "Defensive duels per 90") * (_safe_s(df, "Defensive duels won, %")/100.0)
-    aer_eff = _safe_s(df, "Aerial duels per 90") * (_safe_s(df, "Aerial duels won, %")/100.0)
-    parts = [
-        _safe_s(df, "Successful defensive actions per 90"),
-        def_eff, aer_eff,
-        _safe_s(df, "PAdj Sliding tackles"),
-        _safe_s(df, "PAdj Interceptions"),
-        _safe_s(df, "Shots blocked per 90"),
-    ]
-    total = parts[0]
-    for p in parts[1:]:
-        total = total + p
-    return total
+# ========================= RADAR HELPERS =========================
+def finite_count(series: pd.Series) -> int:
+    s = pd.to_numeric(series, errors="coerce").replace([np.inf, -np.inf], np.nan)
+    return int(s.notna().sum())
 
-def compute_composite_metrics(df: pd.DataFrame, off_weights: dict[str, float]) -> pd.DataFrame:
-    df = df.copy()
-    df = compute_derived_metrics(df)
 
-    df = _ensure_cols(df, list(PHYS_COLS.values()))
-    df["Prod_Ofensiva_p90"] = compute_offensive_production(df, off_weights)
-    df["Prod_Defensiva_p90"] = compute_defensive_production(df)
-
-    def pick(*cands):
-        for c in cands:
-            if c in df.columns: return c
-        return None
-    dist_col = pick("Distance P90","distance_total_m","Total distance per 90","Total Distance per 90 (m)")
-    run_col  = pick("Running Distance P90","running_m")
-    hi_col   = pick("HI Distance P90","hi_m")
-    hsr_cnt  = pick("HSR Count P90","hsr_cnt")
-    spr_cnt  = pick("Sprint Count P90","sprint_cnt")
-    ex_hsr   = pick("Explosive Acceleration to HSR Count P90","expl_hsr_cnt")
-    ex_spr   = pick("Explosive Acceleration to Sprint Count P90","expl_sprint_cnt")
-
-    dist_km = None
-    if dist_col:
-        series = pd.to_numeric(df[dist_col], errors="coerce").fillna(0)
-        dist_km = np.where(series.abs().max() > 2000, series/1000.0, series)
-
-    hi_run_km = None
-    if hi_col or run_col:
-        s_hi = pd.to_numeric(df[hi_col], errors="coerce").fillna(0) if hi_col else 0.0
-        s_run = pd.to_numeric(df[run_col], errors="coerce").fillna(0) if run_col else 0.0
-        s_both = s_hi + s_run
-        hi_run_km = np.where(s_both.abs().max() > 2000, s_both/1000.0, s_both)
-
-    exp_events = None
-    cnts = []
-    for c in [hsr_cnt, spr_cnt, ex_hsr, ex_spr]:
-        if c: cnts.append(pd.to_numeric(df[c], errors="coerce").fillna(0))
-    if cnts: exp_events = sum(cnts)
-
-    def safe_ratio(num, den):
-        if num is None or den is None: return np.nan
-        den = np.asarray(den); den = np.where(den==0, np.nan, den)
-        return num / den
-
-    if dist_km is not None:
-        df["Work Rate Offensive"] = safe_ratio(df["Prod_Ofensiva_p90"], dist_km)
-        df["Work Rate Defensive"] = safe_ratio(df["Prod_Defensiva_p90"], dist_km)
-    if hi_run_km is not None:
-        df["Offensive Intensity"] = safe_ratio(df["Prod_Ofensiva_p90"], hi_run_km)
-        df["Defensive Intensity"] = safe_ratio(df["Prod_Defensiva_p90"], hi_run_km)
-    if exp_events is not None:
-        df["Offensive Explosion"] = safe_ratio(df["Prod_Ofensiva_p90"], exp_events)
-        df["Defensive Explosion"] = safe_ratio(df["Prod_Defensiva_p90"], exp_events)
-
-    if "Minutes played" not in df.columns:
-        raise ValueError("A coluna 'Minutes played' não foi encontrada no arquivo enviado. Certifique-se de manter exatamente esse nome.")
-    return df
-
-# ===================== RADAR / UI HELPERS =====================
-def _bounds_from_df(df: pd.DataFrame, metrics: list[str]):
-    lowers, uppers = [], []
+def sanitize_metrics_for_plot(dataframe: pd.DataFrame, metrics: List[str]) -> List[str]:
+    """Keep only metrics that have at least 1 finite value across the dataset."""
+    valid = []
     for m in metrics:
-        s = pd.to_numeric(df[m], errors="coerce")
-        if m in NEGATE_METRICS: s = -s
-        lo = np.nanpercentile(s, 5); hi = np.nanpercentile(s, 95)
-        if not np.isfinite(lo) or not np.isfinite(hi) or lo == hi:
-            lo = np.nanmin(s); hi = np.nanmax(s)
-        if lo == hi: hi = lo + 1e-6
-        lowers.append(float(lo)); uppers.append(float(hi))
-    return lowers, uppers
+        if m in dataframe.columns and finite_count(dataframe[m]) >= 1:
+            valid.append(m)
+    return valid
 
-def _values_for_player(row: pd.Series, metrics: list[str]):
-    vals = []
-    for m in metrics:
-        v = pd.to_numeric(row.get(m, np.nan), errors="coerce")
-        if m in NEGATE_METRICS and pd.notna(v): v = -v
-        vals.append(float(v) if pd.notna(v) else np.nan)
-    return vals
 
-def _player_label(row: pd.Series) -> str:
+def bounds_from_dataframe(dataframe: pd.DataFrame, metrics: List[str]) -> Tuple[List[float], List[float]]:
+    lower_bounds: List[float] = []
+    upper_bounds: List[float] = []
+    for metric in metrics:
+        s = pd.to_numeric(dataframe[metric], errors="coerce").replace([np.inf, -np.inf], np.nan)
+        if metric in NEGATIVE_DIRECTION_METRICS:
+            s = -s
+        # if all NaN, give safe default
+        if s.notna().sum() == 0:
+            low, high = 0.0, 1.0
+        else:
+            low = np.nanpercentile(s, 5)
+            high = np.nanpercentile(s, 95)
+            if not np.isfinite(low) or not np.isfinite(high) or low == high:
+                low = np.nanmin(s)
+                high = np.nanmax(s)
+            if not np.isfinite(low) or not np.isfinite(high) or low == high:
+                low, high = 0.0, 1.0
+        if low == high:
+            high = low + 1e-6
+        lower_bounds.append(float(low))
+        upper_bounds.append(float(high))
+    return lower_bounds, upper_bounds
+
+
+def values_for_player(row: pd.Series, metrics: List[str]) -> List[float]:
+    values: List[float] = []
+    for metric in metrics:
+        v = pd.to_numeric(row.get(metric, np.nan), errors="coerce")
+        if metric in NEGATIVE_DIRECTION_METRICS and pd.notna(v):
+            v = -v
+        values.append(float(v) if pd.notna(v) else np.nan)
+    return values
+
+
+def player_label(row: pd.Series) -> str:
     name = str(row.get("Player", ""))
     team = str(row.get("Team", "")) if "Team" in row.index and pd.notna(row.get("Team")) else ""
-    pos  = str(row.get("Position", "")) if "Position" in row.index and pd.notna(row.get("Position")) else ""
-    minutes = None
-    for mcol in ["Minutes played","Minutes","minutes","Time played","Minuti","Minutos","Min"]:
-        if mcol in row.index and pd.notna(row.get(mcol)):
+    position = str(row.get("Position", "")) if "Position" in row.index and pd.notna(row.get("Position")) else ""
+
+    minutes_value = None
+    for minutes_col_candidate in ["Minutes played", "Minutes", "Time played", "Min"]:
+        if minutes_col_candidate in row.index and pd.notna(row.get(minutes_col_candidate)):
             try:
-                minutes = int(float(row[mcol]))
+                minutes_value = int(float(row[minutes_col_candidate]))
             except Exception:
-                minutes = row[mcol]
+                minutes_value = row[minutes_col_candidate]
             break
+
     tail = f" — {team}" if team else ""
-    if pos: tail += f" | {pos}"
-    if minutes is not None: tail += f" | {minutes} min"
+    if position:
+        tail += f" | {position}"
+    if minutes_value is not None:
+        tail += f" | {minutes_value} min"
     return name + tail
 
-def plot_radar(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
-               color_a: str, color_b: str = "#E76F51"):
-    if not metrics:
-        st.warning("Select at least 3 metrics for the radar.")
-        return
-    metrics = metrics[:16]
-    row_a = df[df["Player"] == player_a].iloc[0]
-    row_b = df[df["Player"] == player_b].iloc[0] if player_b else None
-    lowers, uppers = _bounds_from_df(df, metrics)
-    radar = Radar(metrics, lowers, uppers, num_rings=4)
 
-    v_a = _values_for_player(row_a, metrics)
-    v_b = _values_for_player(row_b, metrics) if row_b is not None else None
+def draw_radar_figure(
+    full_dataframe: pd.DataFrame,
+    player_a_name: str,
+    player_b_name: Optional[str],
+    metric_names: List[str],
+    color_for_player_a: str,
+    color_for_player_b: str = "#E76F51",
+) -> plt.Figure:
+    if not metric_names:
+        raise ValueError("Selecione pelo menos uma métrica para o radar.")
+
+    metric_names = sanitize_metrics_for_plot(full_dataframe, metric_names[:16])
+    if not metric_names:
+        raise ValueError("Nenhuma métrica com dados válidos para plotar.")
+
+    player_a_row = full_dataframe[full_dataframe["Player"] == player_a_name].iloc[0]
+    player_b_row = full_dataframe[full_dataframe["Player"] == player_b_name].iloc[0] if player_b_name else None
+
+    lowers, uppers = bounds_from_dataframe(full_dataframe, metric_names)
+    radar = Radar(metric_names, lowers, uppers, num_rings=4)
+
+    values_a = values_for_player(player_a_row, metric_names)
+    values_b = values_for_player(player_b_row, metric_names) if player_b_row is not None else None
 
     fig, ax = plt.subplots(figsize=(8, 8))
     radar.setup_axis(ax=ax)
@@ -528,141 +248,140 @@ def plot_radar(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: l
         radar.spoke(ax=ax, color="#c9c9c9", linestyle="--", alpha=0.18)
     except Exception:
         pass
-    radar.draw_radar(v_a, ax=ax, kwargs_radar={"facecolor": color_a+"33", "edgecolor": color_a, "linewidth": 2})
-    if v_b is not None:
-        radar.draw_radar(v_b, ax=ax, kwargs_radar={"facecolor": color_b+"33", "edgecolor": color_b, "linewidth": 2})
+
+    radar.draw_radar(values_a, ax=ax, kwargs_radar={"facecolor": color_for_player_a + "33", "edgecolor": color_for_player_a, "linewidth": 2})
+    if values_b is not None:
+        radar.draw_radar(values_b, ax=ax, kwargs_radar={"facecolor": color_for_player_b + "33", "edgecolor": color_for_player_b, "linewidth": 2})
+
     radar.draw_range_labels(ax=ax, fontsize=9)
     radar.draw_param_labels(ax=ax, fontsize=10)
 
-    title_a = _player_label(row_a)
-    title = title_a if row_b is None else f"{title_a} vs {_player_label(row_b)}"
-    ax.set_title(title, fontsize=14, pad=20)
+    title_a = player_label(player_a_row)
+    title_text = title_a if player_b_row is None else f"{title_a} vs {player_label(player_b_row)}"
+    ax.set_title(title_text, fontsize=14, pad=20)
 
-    st.pyplot(fig, use_container_width=True)
+    return fig
 
-# ===================== Ranking bars helpers =====================
-def _metric_rank_info(dfin: pd.DataFrame, metric: str, player_name: str):
-    s = pd.to_numeric(dfin[metric], errors="coerce")
+
+# ========================= RANKING BARS =========================
+def metric_rank_information(ranking_dataframe: pd.DataFrame, metric_name: str, player_name: str) -> dict:
+    s = pd.to_numeric(ranking_dataframe[metric_name], errors="coerce").replace([np.inf, -np.inf], np.nan)
     mask = s.notna()
     s = s[mask]
-    d = dfin.loc[mask]
+    d = ranking_dataframe.loc[mask]
+
     total = int(s.shape[0]) if s.shape[0] > 0 else 0
     if total == 0:
-        return {"rank": None, "total": 0, "value": np.nan, "norm": 0.0, "ascending": False}
-    ascending = metric in NEGATE_METRICS
+        return {"rank_position": None, "sample_size": 0, "normalized_value": 0.0}
+
+    ascending = metric_name in NEGATIVE_DIRECTION_METRICS
     r = s.rank(ascending=ascending, method="min")
+
     try:
-        player_idx = d.index[d["Player"] == player_name]
-        if player_idx.empty:
-            return {"rank": None, "total": total, "value": np.nan, "norm": 0.0, "ascending": ascending}
-        val = float(s.loc[player_idx[0]]) if player_idx[0] in s.index else np.nan
-        rk = int(r.loc[player_idx[0]]) if player_idx[0] in r.index and not np.isnan(r.loc[player_idx[0]]) else None
+        idx = d.index[d["Player"] == player_name]
+        if idx.empty:
+            return {"rank_position": None, "sample_size": total, "normalized_value": 0.0}
+        rk = int(r.loc[idx[0]]) if idx[0] in r.index and pd.notna(r.loc[idx[0]]) else None
+        val = float(s.loc[idx[0]]) if idx[0] in s.index else np.nan
     except Exception:
-        val, rk = np.nan, None
+        rk, val = None, np.nan
+
     vmin, vmax = float(np.nanmin(s)), float(np.nanmax(s))
     if not np.isfinite(vmin) or not np.isfinite(vmax) or vmax == vmin or not np.isfinite(val):
         norm = 0.5
     else:
         raw = (val - vmin) / (vmax - vmin)
         norm = 1.0 - raw if ascending else raw
-    return {"rank": rk, "total": total, "value": val, "norm": float(np.clip(norm, 0, 1)), "ascending": ascending}
+    return {"rank_position": rk, "sample_size": total, "normalized_value": float(np.clip(norm, 0, 1))}
 
-def render_metric_rank_bars(dfin: pd.DataFrame, player_a: str, metrics: list[str], player_b: str | None = None):
-    if not metrics:
+
+def render_metric_ranking_bars(full_dataframe: pd.DataFrame, player_a_name: str, metric_names: List[str], player_b_name: Optional[str] = None):
+    metric_names = sanitize_metrics_for_plot(full_dataframe, metric_names)
+    if not metric_names:
+        st.info("Sem métricas com dados válidos para exibir as barras.")
         return
-    st.markdown("### 📊 Ranking por métrica")
-    st.caption("Barra indica desempenho relativo; rótulo mostra a posição no ranking (1 = melhor).")
 
-    def _render_for(player_name: str, header: str):
-        st.markdown(f"**{header}:** {player_name}")
+    st.markdown("### 📊 Ranking por métrica")
+    st.caption("Cada barra indica desempenho relativo (0–100%). O rótulo mostra a posição no ranking (1 = melhor).")
+
+    def render_for(name: str, header: str):
+        st.markdown(f"**{header}:** {name}")
         cols_per_row = 3
-        for i, m in enumerate(metrics):
+        for i, m in enumerate(metric_names):
             if i % cols_per_row == 0:
                 cols = st.columns(cols_per_row)
             c = cols[i % cols_per_row]
             with c:
-                info = _metric_rank_info(dfin, m, player_name)
-                rk, tot, val, norm = info["rank"], info["total"], info["value"], info["norm"]
+                info = metric_rank_information(full_dataframe, m, name)
+                rk, tot, norm = info["rank_position"], info["sample_size"], info["normalized_value"]
                 label = f"{m} — {rk}/{tot}" if rk is not None else f"{m} — n/a"
-                fig, ax = plt.subplots(figsize=(4, 0.6))
+                fig, ax = plt.subplots(figsize=(4, 0.45))
                 ax.barh([0], [norm])
                 ax.set_xlim(0, 1)
                 ax.set_yticks([])
                 ax.set_xticks([0, 0.5, 1])
-                ax.set_xticklabels(["0%","50%","100%"], fontsize=7)
+                ax.set_xticklabels(["0%", "50%", "100%"], fontsize=7)
                 ax.set_title(label, fontsize=9, pad=2)
-                for spine in ["top","right","left"]:
-                    ax.spines[spine].set_visible(False)
+                for s in ["top", "right", "left"]:
+                    ax.spines[s].set_visible(False)
                 st.pyplot(fig, use_container_width=True)
 
-    _render_for(player_a, "Jogador A")
-    if player_b:
-        _render_for(player_b, "Jogador B")
+    render_for(player_a_name, "Jogador A")
+    if player_b_name:
+        render_for(player_b_name, "Jogador B")
 
-# ======= Build a single PNG that includes Radar + Ranking Bars =======
-def make_radar_bars_png(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
-                        color_a: str, color_b: str = "#E76F51") -> io.BytesIO:
-    metrics = (metrics or [])[:16]
 
-    lowers, uppers = _bounds_from_df(df, metrics)
-    radar = Radar(metrics, lowers, uppers, num_rings=4)
-
-    row_a = df[df["Player"] == player_a].iloc[0]
-    v_a = _values_for_player(row_a, metrics)
-
-    row_b = None
-    v_b = None
-    if player_b:
-        row_b = df[df["Player"] == player_b].iloc[0]
-        v_b = _values_for_player(row_b, metrics)
-
+# ========================= EXPORTS =========================
+def build_png_with_radar_and_bars(full_dataframe: pd.DataFrame, player_a_name: str, player_b_name: Optional[str], metric_names: List[str], color_a: str, color_b: str) -> io.BytesIO:
+    metric_names = sanitize_metrics_for_plot(full_dataframe, (metric_names or [])[:16])
     cols_per_row = 3
-    rows_per_player = max(1, math.ceil(len(metrics) / cols_per_row))
-    bar_blocks = 1 + (1 if player_b else 0)
+    rows_per_player = max(1, math.ceil(len(metric_names) / cols_per_row))
+    bar_blocks = 1 + (1 if player_b_name else 0)
     total_bar_rows = rows_per_player * bar_blocks
 
-    fig = plt.figure(figsize=(11, 8 + total_bar_rows * 0.9))
+    fig = plt.figure(figsize=(11, 8 + total_bar_rows * 0.7))
     gs = GridSpec(nrows=2 + total_bar_rows, ncols=3, figure=fig)
 
-    # Radar spans first 2 rows
+    # Radar
     ax_radar = fig.add_subplot(gs[0:2, :])
+    lowers, uppers = bounds_from_dataframe(full_dataframe, metric_names)
+    radar = Radar(metric_names, lowers, uppers, num_rings=4)
+
+    row_a = full_dataframe[full_dataframe["Player"] == player_a_name].iloc[0]
+    row_b = full_dataframe[full_dataframe["Player"] == player_b_name].iloc[0] if player_b_name else None
+    v_a = values_for_player(row_a, metric_names)
+    v_b = values_for_player(row_b, metric_names) if row_b is not None else None
+
     radar.setup_axis(ax=ax_radar)
     radar.draw_circles(ax=ax_radar, facecolor="#f3f3f3", edgecolor="#c9c9c9", alpha=0.18)
     try:
         radar.spoke(ax=ax_radar, color="#c9c9c9", linestyle="--", alpha=0.18)
     except Exception:
         pass
-    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": color_a+"33", "edgecolor": color_a, "linewidth": 2})
+    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": color_a + "33", "edgecolor": color_a, "linewidth": 2})
     if v_b is not None:
-        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": color_b+"33", "edgecolor": color_b, "linewidth": 2})
+        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": color_b + "33", "edgecolor": color_b, "linewidth": 2})
     radar.draw_range_labels(ax=ax_radar, fontsize=9)
     radar.draw_param_labels(ax=ax_radar, fontsize=10)
-
-    title_a = _player_label(row_a)
-    title = title_a if row_b is None else f"{title_a} vs {_player_label(row_b)}"
+    title = player_label(row_a) if row_b is None else f"{player_label(row_a)} vs {player_label(row_b)}"
     ax_radar.set_title(title, fontsize=14, pad=16)
 
-    # Bar blocks (player A then optional player B)
-    def _draw_bar_block(start_row: int, player_name: str):
-        for i, m in enumerate(metrics):
+    # Bars
+    def draw_bar_block(start_row: int, name: str):
+        for i, m in enumerate(metric_names):
             r = start_row + (i // cols_per_row)
             c = i % cols_per_row
             ax = fig.add_subplot(gs[2 + r, c])
-            info = _metric_rank_info(df, m, player_name)
-            rk, tot, norm = info["rank"], info["total"], info["norm"]
+            info = metric_rank_information(full_dataframe, m, name)
+            rk, tot, norm = info["rank_position"], info["sample_size"], info["normalized_value"]
             label = f"{m} — {rk}/{tot}" if rk is not None else f"{m} — n/a"
-            ax.barh([0], [norm])
-            ax.set_xlim(0, 1)
-            ax.set_yticks([])
-            ax.set_xticks([0, 0.5, 1])
-            ax.set_xticklabels(["0%","50%","100%"], fontsize=7)
+            ax.barh([0], [norm]); ax.set_xlim(0, 1); ax.set_yticks([])
+            ax.set_xticks([0, 0.5, 1]); ax.set_xticklabels(["0%", "50%", "100%"], fontsize=7)
             ax.set_title(label, fontsize=9, pad=2)
-            for spine in ["top","right","left"]:
-                ax.spines[spine].set_visible(False)
+            for s in ["top", "right", "left"]: ax.spines[s].set_visible(False)
 
-    _draw_bar_block(start_row=0, player_name=player_a)
-    if player_b:
-        _draw_bar_block(start_row=rows_per_player, player_name=player_b)
+    draw_bar_block(0, player_a_name)
+    if player_b_name: draw_bar_block(rows_per_player, player_b_name)
 
     buf = io.BytesIO()
     fig.tight_layout()
@@ -671,298 +390,161 @@ def make_radar_bars_png(df: pd.DataFrame, player_a: str, player_b: str | None, m
     buf.seek(0)
     return buf
 
-# ===================== SIDEBAR — Controls =====================
-st.sidebar.header("⚙️ Settings")
-up = st.sidebar.file_uploader("Upload merged Excel (WyScout + SkillCorner)", type=["xlsx"])
-TOPN = st.sidebar.slider("Top N per ranking", 5, 50, 10, 1)
-pos_filter = st.sidebar.text_input("Filter by Position (regex)", value="")
-team_filter = st.sidebar.text_input("Filter by Team (exact match)", value="")
-demo_mode = st.sidebar.checkbox("Demo mode (synthetic data)", value=False)
-min_minutes = st.sidebar.number_input(
-    "Minimum minutes played",
-    min_value=0,
-    value=0,
-    step=90,
-    help="Apenas os Rankings respeitarão este filtro. Radar e percentis usam o dataset completo."
-)
 
-# ===================== SIDEBAR NAVIGATION =====================
-page = st.sidebar.radio("📑 Pages", ["Dashboard", "Metrics Documentation"])
+def build_two_page_pdf_with_radar_and_bars(full_dataframe: pd.DataFrame, player_a_name: str, player_b_name: Optional[str], metric_names: List[str], color_a: str, color_b: str) -> io.BytesIO:
+    metric_names = sanitize_metrics_for_plot(full_dataframe, (metric_names or [])[:16])
+    buf = io.BytesIO()
+    with PdfPages(buf) as pdf:
+        # Page 1: Radar (portrait)
+        fig1 = draw_radar_figure(full_dataframe, player_a_name, player_b_name, metric_names, color_a, color_b)
+        pdf.savefig(fig1, dpi=300, bbox_inches="tight"); plt.close(fig1)
 
-if page == "Metrics Documentation":
-    st.title("📘 Composite Metrics Documentation")
-    st.caption("Explanation of each composite metric and how it is calculated.")
+        # Page 2: Bars (landscape, thin)
+        rows = len(metric_names)
+        y = np.arange(rows)[::-1]
+        fig2 = plt.figure(figsize=(11.69, 8.27))  # A4 landscape
+        ax_title = fig2.add_subplot(111); ax_title.set_title("Ranking por métrica", fontsize=12, pad=10); ax_title.axis("off")
 
-    st.header("Offensive Metrics")
-    st.markdown("""
-**Offensive Production (per 90)**  
-Weighted sum of attacking contributions such as:  
-- Successful attacking actions per 90  
-- xG per 90  
-- xA per 90  
-- Key passes per 90  
-- Deep completions, progressive runs, smart passes, crosses to the goalie box, touches in box, etc.  
-Weights are predefined (higher for xG/xA/key passes, lower for crosses/touches).
-    """)
+        left, bottom, width, height_ax = 0.08, 0.08, 0.84, 0.84
+        axbars = fig2.add_axes([left, bottom, width, height_ax])
 
-    st.header("Defensive Metrics")
-    st.markdown("""
-**Defensive Production (per 90)**  
-Sum of:  
-- Successful defensive actions per 90  
-- Defensive duel efficiency *(duels × win%)*  
-- Aerial duel efficiency *(duels × win%)*  
-- Sliding tackles *(possession-adjusted)*  
-- Interceptions *(possession-adjusted)*  
-- Shots blocked per 90  
-    """)
+        def labels_and_values(name: str):
+            labels, norms = [], []
+            for m in metric_names:
+                info = metric_rank_information(full_dataframe, m, name)
+                rk, tot, norm = info["rank_position"], info["sample_size"], info["normalized_value"]
+                labels.append(f"{m} — {rk}/{tot}" if rk is not None else f"{m} — n/a")
+                norms.append(norm)
+            return labels, norms
 
-    st.header("Physical + Technical Composites")
-    st.markdown("""
-These normalize offensive and defensive production by physical output:
+        labels_a, norms_a = labels_and_values(player_a_name)
+        axbars.barh(y, norms_a, height=0.18, label=f"{player_a_name}")
+        if player_b_name:
+            labels_b, norms_b = labels_and_values(player_b_name)
+            axbars.barh(y - 0.2, norms_b, height=0.18, label=f"{player_b_name}")
 
-- **Work Rate Offensive** = *Offensive Production* ÷ *Total Distance (km per 90)*  
-- **Work Rate Defensive** = *Defensive Production* ÷ *Total Distance (km per 90)*  
+        axbars.set_xlim(0, 1); axbars.set_yticks(y); axbars.set_yticklabels(labels_a, fontsize=8)
+        axbars.set_xticks([0, 0.5, 1]); axbars.set_xticklabels(["0%", "50%", "100%"], fontsize=8)
+        for s in ["top", "right", "left"]: axbars.spines[s].set_visible(False)
+        axbars.legend(loc="lower right", fontsize=8)
 
-- **Offensive Intensity** = *Offensive Production* ÷ *(High-intensity + Running Distance, km per 90)*  
-- **Defensive Intensity** = *Defensive Production* ÷ *(High-intensity + Running Distance, km per 90)*  
+        pdf.savefig(fig2, dpi=300, bbox_inches="tight"); plt.close(fig2)
 
-- **Offensive Explosion** = *Offensive Production* ÷ *Explosive Events* *(HSR, Sprints, Explosive Accelerations)*  
-- **Defensive Explosion** = *Defensive Production* ÷ *Explosive Events*
-    """)
+    buf.seek(0)
+    return buf
 
-    st.header("Radar Composite Metrics")
-    st.markdown("""
-These are normalized **[0–100]** composites built from z-scores of component stats:
 
-- **xG Buildup**: weighted mix of xA, shot assists, npxG, key passes, deep completions, accurate passing.  
-- **Creativity**: smart passes, through passes, passes to penalty area + their accuracy.  
-- **Progression**: progressive passes, runs, dribbles, accelerations + accuracy of progressive actions.  
-- **Defence**: defensive actions, interceptions, tackles, duels, aerials.  
-- **Involvement**: combined measure of touches, passes, duels, interceptions, box presence.  
-- **Discipline**: negative metric (fouls, yellows, reds).  
-- **Finishing**: conversion rate, non-penalty goals, shots on target, G-xG, npxG/shot.  
-- **Poaching**: balance of shot efficiency, box presence, receiving passes.  
-- **Aerial Threat / Aerial Defence**: heading goals, aerial duel volume & success, interceptions, blocks.  
-- **Passing Quality**: weighted mix of passing volume + accuracy across directions.  
-- **Box Threat**: ratio of npxG per 90 to log(touches in box + 1).
-    """)
+# ========================= SIDEBAR / DATA =========================
+st.sidebar.header("⚙️ Configurações")
+uploaded_excel_file = st.sidebar.file_uploader("Envie seu Excel (ex.: SCWY Allsvenskan 2025.xlsx)", type=["xlsx"])
+top_n_items_to_show = st.sidebar.slider("Top N no ranking", 5, 50, 10, 1)
+position_filter_pattern = st.sidebar.text_input("Filtrar por posição (regex)", value="")
+team_filter_exact = st.sidebar.text_input("Filtrar por time (igualdade exata)", value="")
+demo_mode_enabled = st.sidebar.checkbox("Modo demo (dados de exemplo)", value=False)
+minimum_minutes_for_rankings = st.sidebar.number_input("Mínimo de minutos (apenas para exibição no Ranking)", min_value=0, value=0, step=90, help="Este filtro NÃO afeta os percentis ou o radar; apenas quem aparece nas tabelas de ranking.")
 
-    st.info("All metrics are scaled and normalized to ensure fair comparisons across players.")
-    st.stop()
+st.title("⚽ Composite Football Metrics and Radar")
 
-# ===================== MAIN =====================
-st.title("⚽ Composite Metrics & Radar")
-st.caption("Integrated with composite metrics + physical/technical composites")
-
-df = None
-if demo_mode:
-    st.warning("Demo mode is ON — synthetic sample loaded.")
-    df_demo = pd.DataFrame({
-        "Player": ["Player A","Player B","Player C"],
-        "Team": ["X","Y","Z"],
-        "Position": ["CF","RW","DMF"],
-        "Minutes played": [900, 880, 910],
-        "Successful attacking actions per 90":[5,7,2],
-        "xG per 90":[0.3,0.2,0.1],
-        "xA per 90":[0.2,0.4,0.05],
-        "Key passes per 90":[1.2,1.5,0.6],
-        "Deep completions per 90":[1.0,0.8,0.4],
-        "Deep completed crosses per 90":[0.2,0.5,0.0],
-        "Progressive runs per 90":[1.1,1.6,0.3],
-        "Passes to penalty area per 90":[0.6,0.9,0.2],
-        "Smart passes per 90":[0.4,0.5,0.2],
-        "Crosses to goalie box per 90":[0.1,0.3,0.0],
-        "Touches in box per 90":[3.5,4.0,1.2],
-        "xG":[6.0, 4.8, 1.2],
-        "Goals":[5,4,1],
-        "Penalties taken":[1,0,0],
-        "Shots":[20,18,9],
-        "Shot assists per 90":[0.5,0.8,0.2],
-        "Second assists per 90":[0.1,0.2,0.0],
-        "Accurate passes %":[82,78,90],
-        "Through passes per 90":[0.3,0.6,0.1],
-        "Accurate smart passes, %":[55,52,60],
-        "Accurate through passes, %":[42,38,50],
-        "Accurate passes to penalty area, %":[40,44,35],
-        "Progressive passes per 90":[3.0,3.8,1.2],
-        "Accurate progressive passes, %":[68,62,70],
-        "Dribbles per 90":[2.0,3.5,0.8],
-        "Successful dribbles, %":[55,48,52],
-        "Accelerations per 90":[1.2,1.8,0.6],
-        "Successful defensive actions per 90":[4.0,2.0,6.0],
-        "Defensive duels per 90":[5.0,3.0,8.0],
-        "Defensive duels won, %":[60,55,68],
-        "Aerial duels per 90":[2.0,1.0,3.0],
-        "Aerial duels won, %":[50,45,62],
-        "PAdj Sliding tackles":[0.3,0.1,0.7],
-        "PAdj Interceptions":[0.8,0.4,1.2],
-        "Shots blocked per 90":[0.2,0.1,0.5],
-        "Passes per 90":[35,42,55],
-        "Received passes per 90":[12,14,10],
-        "Touches per 90":[50,48,62],
-        "Passes to final third per 90":[2.2,1.9,1.5],
-        "Accurate passes to final third, %":[70,64,72],
-        "Forward passes per 90":[12,14,10],
-        "Accurate forward passes, %":[78,75,82],
-        "Long passes per 90":[3.0,2.0,5.0],
-        "Accurate long passes, %":[55,48,62],
-        "Lateral passes per 90":[7.0,8.0,6.0],
-        "Accurate lateral passes, %":[90,88,92],
-        "Back passes per 90":[4.0,6.0,5.0],
-        "Accurate back passes, %":[94,96,95],
-        "Head goals per 90":[0.05,0.02,0.03],
-        "Goal conversion, %":[18,15,8],
-        "Shots on target, %":[45,42,38],
-        "Fouls per 90":[1.5,1.8,2.2],
-        "Yellow cards per 90":[0.2,0.15,0.25],
-        "Red cards per 90":[0.01,0.0,0.02],
-        "Distance P90":[10000,9800,10500],
-        "Running Distance P90":[8000,7800,8200],
-        "HI Distance P90":[1500,1300,1100],
-        "HSR Distance P90":[600,550,500],
-        "Sprint Distance P90":[250,220,200],
-        "HSR Count P90":[40,35,30],
-        "Sprint Count P90":[15,12,10],
-        "Explosive Acceleration to HSR Count P90":[3,2,2],
-        "Explosive Acceleration to Sprint Count P90":[1,1,1],
+if demo_mode_enabled:
+    st.warning("Modo demo ativado — dados de exemplo carregados.")
+    df_loaded = pd.DataFrame({
+        "Player": ["Player A", "Player B", "Player C", "Player D"],
+        "Team": ["X", "X", "Y", "Z"],
+        "Position": ["CF", "RW", "DMF", "CB"],
+        "Minutes played": [900, 880, 910, 1200],
+        "xG": [6.0, 4.8, 1.2, 2.0],
+        "Penalties taken": [1, 0, 0, 2],
+        "Shots": [20, 18, 9, 15],
+        "Touches in box per 90": [3.5, 4.0, 1.2, 0.8],
+        "Goals": [5, 4, 1, 3],
     })
-    df = compute_composite_metrics(df_demo, DEFAULT_OFF_WEIGHTS)
+elif uploaded_excel_file is not None:
+    df_loaded = read_excel_file(uploaded_excel_file)
 else:
-    if up is None:
-        st.info("Upload your merged Excel on the left panel to begin (or enable Demo mode).")
-    else:
-        with st.spinner("Loading data and computing metrics…"):
-            try:
-                df_raw = _load_excel(up)
-                df = compute_composite_metrics(df_raw, DEFAULT_OFF_WEIGHTS)
-            except Exception as e:
-                st.error("There was an error while computing metrics.")
-                st.exception(e)
-
-if df is None or df.empty:
+    st.info("Envie seu Excel no painel à esquerda ou habilite o Modo demo.")
     st.stop()
 
-# Enforce presence of Minutes played
-if "Minutes played" not in df.columns:
-    st.error("Arquivo não possui a coluna 'Minutes played'. Renomeie a coluna para exatamente 'Minutes played' e reenvié.")
+if df_loaded is None or df_loaded.empty:
+    st.error("Não foi possível carregar dados.")
     st.stop()
 
-# Keep global (df_all) for all calculations; df_view only controls Rankings listing
-df_all = df.copy()
-df_view = df_all[df_all["Minutes played"].fillna(0) >= int(min_minutes)].copy()
-st.caption(
-    f"Filtro de minutos afeta apenas os **Rankings** (mostra {df_view.shape[0]} de {df_all.shape[0]} jogadores). "
-    "Cálculos de radar e percentis permanecem sobre o dataset completo."
-)
+with st.spinner("Processando métricas derivadas..."):
+    df_all = compute_derived_metrics(df_loaded)
 
-# ===================== KPIs =====================
-st.subheader("Overview")
-col1, col2, col3, col4 = st.columns(4)
-with col1: st.markdown(f"<div class='metric-card'><div class='subtle small'>Players</div><h3>{df_all.shape[0]}</h3></div>", unsafe_allow_html=True)
-with col2: st.markdown(f"<div class='metric-card'><div class='subtle small'>Teams</div><h3>{df_all['Team'].nunique() if 'Team' in df_all.columns else '—'}</h3></div>", unsafe_allow_html=True)
-with col3: st.markdown(f"<div class='metric-card'><div class='subtle small'>Positions</div><h3>{df_all['Position'].nunique() if 'Position' in df_all.columns else '—'}</h3></div>", unsafe_allow_html=True)
-with col4: st.markdown(f"<div class='metric-card'><div class='subtle small'>Columns</div><h3>{df_all.shape[1]}</h3></div>", unsafe_allow_html=True)
+# Rankings view (minutes filter only affects display)
+if "Minutes played" in df_all.columns:
+    minutes_col = "Minutes played"
+elif "Minutes" in df_all.columns:
+    minutes_col = "Minutes"
+else:
+    st.error("A base não possui 'Minutes played' nem 'Minutes'."); st.stop()
 
-# ===================== Rankings =====================
+df_view = df_all[df_all[minutes_col].fillna(0) >= int(minimum_minutes_for_rankings)].copy()
+st.caption(f"O filtro de minutos afeta apenas as **tabelas de Ranking** (mostrando {df_view.shape[0]} de {df_all.shape[0]} jogadores). Cálculos de radar e percentis usam o **dataset completo**.")
+
+# KPIs
+st.subheader("Panorama")
+c1, c2, c3, c4 = st.columns(4)
+with c1: st.markdown(f"<div class='metric-card'><div class='subtle small'>Jogadores</div><h3>{df_all.shape[0]}</h3></div>", unsafe_allow_html=True)
+with c2: st.markdown(f"<div class='metric-card'><div class='subtle small'>Times</div><h3>{df_all['Team'].nunique() if 'Team' in df_all.columns else '—'}</h3></div>", unsafe_allow_html=True)
+with c3: st.markdown(f"<div class='metric-card'><div class='subtle small'>Posições</div><h3>{df_all['Position'].nunique() if 'Position' in df_all.columns else '—'}</h3></div>", unsafe_allow_html=True)
+with c4: st.markdown(f"<div class='metric-card'><div class='subtle small'>Colunas</div><h3>{df_all.shape[1]}</h3></div>", unsafe_allow_html=True)
+
+# Rankings
 st.markdown("<div class='section'>Rankings</div>", unsafe_allow_html=True)
+numeric_metric_options = sorted([c for c in df_all.columns if c not in IDENTITY_COLUMNS and pd.api.types.is_numeric_dtype(df_all[c])])
+default_index = numeric_metric_options.index("npxG per 90") if "npxG per 90" in numeric_metric_options else 0
+selected_metric_for_ranking = st.selectbox("Escolha a métrica para o ranking", numeric_metric_options, index=default_index)
 
-def _leaderboard(metric):
+def render_leaderboard_table(metric_name: str):
     d = df_view.copy()
     if d.empty:
-        st.info("Nenhum jogador atende ao filtro de minutos para exibição no ranking.")
-        return
-    if team_filter:
-        d = d[d["Team"].astype(str) == team_filter]
-    if pos_filter:
-        d = d[d["Position"].astype(str).str.contains(pos_filter)]
-    if metric not in d.columns:
-        st.warning(f"Métrica {metric} não encontrada no dataset.")
-        return
-    id_cols = [c for c in ID_COLS_CANDIDATES if c in d.columns]
-    cols = id_cols + [
-        "Work Rate Offensive","Offensive Intensity","Offensive Explosion",
-        "Work Rate Defensive","Defensive Intensity","Defensive Explosion",
-        "Creativity","Progression","Defence","Passing Quality","Aerial Defence",
-        "Involvement","Discipline","xG Buildup","Box Threat","Finishing",
-        "Poaching","Aerial Threat","npxG per 90","npxG per Shot","G-xG",
-    ]
-    present = [c for c in cols if c in d.columns]
-    out = d.dropna(subset=[metric]).sort_values(metric, ascending=False).head(TOPN)
-    st.dataframe(out[present], use_container_width=True)
+        st.info("Nenhum jogador atende ao filtro de minutos para exibição no ranking."); return
+    if metric_name not in d.columns:
+        st.warning(f"Métrica {metric_name} não encontrada no dataset."); return
 
-t1, t2, t3, t4, t5, t6 = st.tabs([
-    "Work Rate Offensive","Offensive Intensity","Offensive Explosion",
-    "Work Rate Defensive","Defensive Intensity","Defensive Explosion",
-])
-with t1: _leaderboard("Work Rate Offensive")
-with t2: _leaderboard("Offensive Intensity")
-with t3: _leaderboard("Offensive Explosion")
-with t4: _leaderboard("Work Rate Defensive")
-with t5: _leaderboard("Defensive Intensity")
-with t6: _leaderboard("Defensive Explosion")
+    if team_filter_exact:
+        d = d[d["Team"].astype(str) == team_filter_exact]
+    if position_filter_pattern:
+        d = d[d["Position"].astype(str).str.contains(position_filter_pattern, na=False)]
 
-# ===================== Radar Generator + Ranking Bars =====================
-st.markdown("<div class='section'>Radar Generator</div>", unsafe_allow_html=True)
+    d[metric_name] = pd.to_numeric(d[metric_name], errors="coerce")
+    d = d.replace([np.inf, -np.inf], np.nan).dropna(subset=[metric_name])
+    if d.empty:
+        st.info("Sem valores válidos após limpeza para esta métrica."); return
 
-def _merge_presets(preset_names: list[str], df: pd.DataFrame) -> list[str]:
-    merged = []
-    for p in preset_names:
-        for m in PRESETS.get(p, []):
-            if m in df.columns and df[m].notna().any() and m not in merged:
-                merged.append(m)
-    return merged
+    asc = metric_name in NEGATIVE_DIRECTION_METRICS
+    d = d.sort_values(metric_name, ascending=asc, kind="mergesort")
 
-colA, colB = st.columns([1, 2])
-with colA:
-    all_presets = list(PRESETS.keys())
-    selected_presets = st.multiselect(
-        "Position presets (choose up to 3)",
-        options=all_presets,
-        default=[all_presets[0]]
-    )
-    if len(selected_presets) > 3:
-        st.warning("You selected more than 3 presets; only the first 3 will be used.")
-        selected_presets = selected_presets[:3]
+    id_cols_present = [c for c in IDENTITY_COLUMNS if c in d.columns]
+    st.dataframe(d.head(top_n_items_to_show)[id_cols_present + [metric_name]], use_container_width=True)
 
-    metrics_from_presets = _merge_presets(selected_presets, df_all)
+render_leaderboard_table(selected_metric_for_ranking)
 
-    metrics_all = sorted([
-        c for c in df_all.columns
-        if c not in ID_COLS_CANDIDATES and pd.api.types.is_numeric_dtype(df_all[c])
-    ])
+# Radar + Bars
+st.markdown("<div class='section'>Radar</div>", unsafe_allow_html=True)
+players = sorted(df_all["Player"].dropna().unique().tolist()) if "Player" in df_all.columns else []
+player_a = st.selectbox("Jogador A", players, index=0 if players else None)
+player_b_choice = st.selectbox("Jogador B (opcional)", ["—"] + players, index=0)
+player_b = None if player_b_choice == "—" else player_b_choice
 
-    default_metrics = metrics_from_presets[:16] if metrics_from_presets else []
-    metrics_sel = st.multiselect(
-        "Metrics in radar (max 16)",
-        options=metrics_all,
-        default=default_metrics,
-        help="You can add/remove metrics. If multiple presets are selected, duplicates are removed automatically."
-    )
-    if len(metrics_sel) > 16:
-        st.info(f"You selected {len(metrics_sel)} metrics; only the first 16 will be plotted.")
+metrics_all = [c for c in df_all.columns if c not in IDENTITY_COLUMNS and pd.api.types.is_numeric_dtype(df_all[c])]
+metrics_selected = st.multiselect("Métricas (máx 16)", sorted(metrics_all), default=["npxG per 90", "npxG per Shot", "Box Threat", "G-xG"])[:16]
+color_a = st.color_picker("Cor A", "#2A9D8F")
+color_b = st.color_picker("Cor B", "#E76F51")
 
-    players = sorted(df_all["Player"].dropna().unique().tolist()) if "Player" in df_all.columns else []
-    p1 = st.selectbox("Player A", players)
-    p2 = st.selectbox("Player B (optional)", ["—"] + players)
-    color_a = st.color_picker("Color A", "#2A9D8F")
-    color_b = st.color_picker("Color B", "#E76F51")
+if player_a and metrics_selected:
+    try:
+        fig = draw_radar_figure(df_all, player_a, player_b, metrics_selected, color_a, color_b)
+        st.pyplot(fig, use_container_width=True)
+        plt.close(fig)
+        render_metric_ranking_bars(df_all, player_a, metrics_selected, player_b)
+    except Exception as e:
+        st.error("Não foi possível gerar o radar com as métricas selecionadas (provavelmente por falta de dados válidos). Ajuste as métricas e tente novamente.")
+        st.exception(e)
 
-    # Download button for combined PNG
-    if p1 and metrics_sel:
-        png_buf = make_radar_bars_png(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b)
-        st.download_button("⬇️ Download Radar + Barras (PNG)", data=png_buf.getvalue(), file_name="radar_barras.png", mime="image/png")
+    png_buf = build_png_with_radar_and_bars(df_all, player_a, player_b, metrics_selected, color_a, color_b)
+    st.download_button("⬇️ PNG: Radar + Barras (1 página)", data=png_buf.getvalue(), file_name="radar_barras.png", mime="image/png")
 
-with colB:
-    if p1 and metrics_sel:
-        plot_radar(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b)
-        render_metric_rank_bars(df_all, p1, metrics_sel, None if p2 == "—" else p2)
-
-# ===================== Export =====================
-st.markdown("<div class='section'>Export</div>", unsafe_allow_html=True)
-st.download_button(
-    "Download full CSV",
-    df_all.to_csv(index=False).encode("utf-8"),
-    file_name="composite_metrics_base.csv",
-    mime="text/csv",
-)
+    pdf_buf = build_two_page_pdf_with_radar_and_bars(df_all, player_a, player_b, metrics_selected, color_a, color_b)
+    st.download_button("⬇️ PDF (2 páginas): Radar + Barras (paisagem)", data=pdf_buf.getvalue(), file_name="radar_barras.pdf", mime="application/pdf")
