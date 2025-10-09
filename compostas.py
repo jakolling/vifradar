@@ -9,64 +9,6 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from mplsoccer import Radar
 
-
-def compute_derived_metrics(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Compute derived metrics with correct npxG per 90 and G-xG handling.
-    - npxG_raw = xG - penalties*0.81
-    - npxG per 90 = npxG_raw / (minutes/90)
-    - npxG per Shot = npxG_raw / shots
-    - Then apply z-score to the above (and to total npxG)
-    - G-xG = (Goals - xG) then z-score
-    """
-    df = df.copy()
-
-    def _safe_num(s):
-        return pd.to_numeric(s, errors="coerce")
-
-    def _z(s):
-        s = _safe_num(s)
-        m = s.mean(skipna=True)
-        sd = s.std(skipna=True, ddof=0)
-        if not np.isfinite(sd) or sd == 0:
-            return pd.Series(0.0, index=s.index)
-        return (s - m) / sd
-
-    # npxG raw
-    if "xG" in df.columns:
-        xg = _safe_num(df["xG"]).fillna(0)
-        pens = _safe_num(df["Penalties taken"]).fillna(0) if "Penalties taken" in df.columns else 0.0
-        df["_npxG_raw"] = xg - pens * 0.81
-    else:
-        df["_npxG_raw"] = np.nan
-
-    # per 90
-    if "Minutes played" in df.columns:
-        minutes = _safe_num(df["Minutes played"]).replace(0, np.nan)
-        df["npxG per 90"] = _z(df["_npxG_raw"] / (minutes / 90.0))
-    else:
-        df["npxG per 90"] = np.nan
-
-    # per shot
-    if "Shots" in df.columns:
-        shots = _safe_num(df["Shots"]).replace(0, np.nan)
-        df["npxG per Shot"] = _z(df["_npxG_raw"] / shots)
-    else:
-        df["npxG per Shot"] = np.nan
-
-    # total
-    df["npxG"] = _z(df["_npxG_raw"])
-
-    # G - xG
-    if {"Goals", "xG"}.issubset(df.columns):
-        goals = _safe_num(df["Goals"])
-        xg = _safe_num(df["xG"])
-        df["G-xG"] = _z(goals - xg)
-    else:
-        df["G-xG"] = np.nan
-
-    return df
-
 # ===================== CONFIG & STYLE =====================
 st.set_page_config(
     page_title="Composite Metrics & Radar",
@@ -232,6 +174,41 @@ def _zscore(series: pd.Series) -> pd.Series:
     return (s - m) / sd
 
 # ===================== DERIVED METRICS =====================
+def compute_derived_metrics(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    needed = set([
+        "xG","Penalties taken","Goals","Shots","Touches in box per 90",
+        "xA per 90","Shot assists per 90","Key passes per 90","Deep completions per 90",
+        "Deep completed crosses per 90","Accurate passes %","Accurate passes, %",
+        "Smart passes per 90","Through passes per 90","Passes to penalty area per 90",
+        "Accurate smart passes, %","Accurate through passes, %","Accurate passes to penalty area, %",
+        "Progressive passes per 90","Progressive runs per 90","Dribbles per 90","Accelerations per 90",
+        "Accurate progressive passes, %","Successful dribbles, %",
+        "Successful defensive actions per 90","PAdj Interceptions","Shots blocked per 90","PAdj Sliding tackles",
+        "Defensive duels per 90","Defensive duels won, %","Aerial duels won, %","Aerial duels per 90",
+        "Passes to final third per 90","Accurate passes to final third, %","Forward passes per 90","Accurate forward passes, %",
+        "Long passes per 90","Accurate long passes, %","Lateral passes per 90","Accurate lateral passes, %",
+        "Back passes per 90","Accurate back passes, %","Passes per 90",
+        "Head goals per 90","Goal conversion, %","Received passes per 90",
+        "Fouls per 90","Yellow cards per 90","Red cards per 90",
+        "Minutes played"
+    ])
+    _ensure_cols(df, list(needed))
+
+    # npxG & friends
+    if "xG" in df and "Penalties taken" in df:
+        df["npxG"] = (df["xG"] - (df["Penalties taken"].fillna(0) * 0.81))
+        df["npxG"] = _zscore(df["npxG"])
+    if "Goals" in df and "xG" in df:
+        df["G-xG"] = _zscore(df["Goals"] - df["xG"])
+    if "npxG" in df and "Minutes played" in df:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            df["npxG per 90"] = df["npxG"] / (df["Minutes played"].replace(0, np.nan) / 90)
+        df["npxG per 90"] = _zscore(df["npxG per 90"])
+    if "npxG" in df and "Shots" in df:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            df["npxG per Shot"] = df["npxG"] / df["Shots"].replace(0, np.nan)
+        df["npxG per Shot"] = _zscore(df["npxG per Shot"])
 
     # Box Threat
     if "npxG per 90" in df and "Touches in box per 90" in df:
@@ -383,87 +360,34 @@ def _zscore(series: pd.Series) -> pd.Series:
             parts.append(_zscore(s) * w)
     if parts: df["Aerial Defence"] = sum(parts)
 
-    
-
-    # ===================== PERCENTILE NORMALIZATION (robust) =====================
-    MIN_MINUTES_FOR_POP = 300  # ajuste se quiser outro corte
-
-    LOWER_BETTER = {
-        "Conceded goals per 90",
-        "xG against per 90",
-        "Fouls per 90",
-        "Yellow cards per 90",
-        "Red cards per 90",
-    }
-
-    def _winsorize_iqr(s: pd.Series):
-        s = pd.to_numeric(s, errors="coerce")
-        q1 = s.quantile(0.25)
-        q3 = s.quantile(0.75)
-        iqr = q3 - q1
-        if not np.isfinite(iqr) or iqr == 0:
-            return s
-        lo = q1 - 3*iqr
-        hi = q3 + 3*iqr
-        return s.clip(lower=lo, upper=hi)
-
-    def _percentile_ranked(df: pd.DataFrame, metrics: list[str]) -> pd.DataFrame:
-        df = df.copy()
-        if "Minutes played" in df.columns:
-            pop_mask = pd.to_numeric(df["Minutes played"], errors="coerce").fillna(0) >= MIN_MINUTES_FOR_POP
-        else:
-            pop_mask = pd.Series(True, index=df.index)
-
-        pop = df[pop_mask].copy()
-        for m in metrics:
-            if m not in df.columns:
-                continue
-            s_all = pd.to_numeric(df[m], errors="coerce")
-            s_pop = _winsorize_iqr(pd.to_numeric(pop[m], errors="coerce")) if m in pop.columns else None
-            if s_pop is None or s_pop.notna().sum() < 5:
-                # fallback: use global series
-                s_pop = _winsorize_iqr(s_all)
-
-            # determine direction
-            higher_is_better = m not in LOWER_BETTER
-
-            # rank within population, then map all by ECDF of pop
-            # Using rank(pct=True) with ascending reversed for higher better
-            ranks = s_pop.rank(pct=True, method="average", ascending=not higher_is_better)
-            # map values in df to percentile by their position relative to pop distribution
-            # We'll compute percentiles by counting proportion of pop <= value (or >= when higher better)
-            # Efficient approach: sort pop and use searchsorted
-            vals_pop = s_pop.dropna().sort_values().values
-            if vals_pop.size == 0:
-                df[m] = np.nan
-                continue
-
-            import numpy as _np
-            if higher_is_better:
-                # percentile = proportion of pop <= v
-                def perc(v):
-                    if not _np.isfinite(v): return _np.nan
-                    # index of insertion to the right (includes equal values)
-                    idx = _np.searchsorted(vals_pop, v, side="right")
-                    return 100.0 * (idx / vals_pop.size)
+    # Normalize to [0,100]
+    main_derived = [
+        "npxG","npxG per 90","npxG per Shot","Box Threat","xG Buildup","Creativity","Progression",
+        "Defence","Involvement","Discipline","G-xG","Poaching","Finishing","Aerial Threat","Passing Quality","Aerial Defence"
+    ]
+    for m in main_derived:
+        if m in df.columns:
+            s = pd.to_numeric(df[m], errors="coerce")
+            if s.notna().sum() > 1:
+                lo, hi = np.nanmin(s), np.nanmax(s)
+                if np.isfinite(lo) and np.isfinite(hi) and hi != lo:
+                    df[m] = (s - lo) / (hi - lo) * 100.0
+                else:
+                    df[m] = 50.0
             else:
-                # lower is better: percentile = proportion of pop >= v
-                def perc(v):
-                    if not _np.isfinite(v): return _np.nan
-                    # number >= v is size - index of left insertion
-                    idx = _np.searchsorted(vals_pop, v, side="left")
-                    return 100.0 * ((vals_pop.size - idx) / vals_pop.size)
+                df[m] = 50.0
 
-            df[m] = s_all.apply(perc)
+    # Invert negatives if present
+    for m in ["Conceded goals per 90","xG against per 90","Fouls per 90","Yellow cards per 90","Red cards per 90"]:
+        if m in df.columns:
+            s = pd.to_numeric(df[m], errors="coerce")
+            if s.notna().sum() > 1:
+                hi, lo = np.nanmax(s), np.nanmin(s)
+                if hi != lo: df[m] = (hi - s) / (hi - lo) * 100.0
+                else: df[m] = 50.0
+    return df
 
-        return df
-
-        main_derived = [
-            "npxG","npxG per 90","npxG per Shot","Box Threat","xG Buildup","Creativity","Progression",
-            "Defence","Involvement","Discipline","G-xG","Poaching","Finishing","Aerial Threat","Passing Quality","Aerial Defence"
-        ]
-    
-        df = _percentile_ranked(df, main_derived)# ===================== OUR OFF/DEF COMPOSITES =====================
+# ===================== OUR OFF/DEF COMPOSITES =====================
 def compute_offensive_production(df: pd.DataFrame, weights: dict[str, float]) -> pd.Series:
     df = _ensure_cols(df, OFFENSIVE_COMPONENTS)
     s = pd.Series(0.0, index=df.index)
@@ -546,26 +470,15 @@ def compute_composite_metrics(df: pd.DataFrame, off_weights: dict[str, float]) -
     return df
 
 # ===================== RADAR / UI HELPERS =====================
-
-def _bounds_from_df(df, metrics):
+def _bounds_from_df(df: pd.DataFrame, metrics: list[str]):
     lowers, uppers = [], []
-    import numpy as _np
-    import pandas as _pd
     for m in metrics:
-        if m in df.columns:
-            s = _pd.to_numeric(df[m], errors="coerce")
-        else:
-            s = _pd.Series(dtype=float)
-        if s.notna().sum() == 0:
-            lo, hi = -2.0, 2.0
-        else:
-            lo = _np.nanmin(s.values)
-            hi = _np.nanmax(s.values)
-            if not _np.isfinite(lo) or not _np.isfinite(hi) or hi == lo:
-                span = abs(hi) if _np.isfinite(hi) else 1.0
-                lo, hi = (hi - 0.5*max(1.0, span), hi + 0.5*max(1.0, span))
-        if hi <= lo:
-            hi = lo + 1.0
+        s = pd.to_numeric(df[m], errors="coerce")
+        if m in NEGATE_METRICS: s = -s
+        lo = np.nanpercentile(s, 5); hi = np.nanpercentile(s, 95)
+        if not np.isfinite(lo) or not np.isfinite(hi) or lo == hi:
+            lo = np.nanmin(s); hi = np.nanmax(s)
+        if lo == hi: hi = lo + 1e-6
         lowers.append(float(lo)); uppers.append(float(hi))
     return lowers, uppers
 
