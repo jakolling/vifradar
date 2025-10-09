@@ -712,43 +712,54 @@ else:
 if df is None or df.empty:
     st.stop()
 
-# Enforce presence of Minutes played and filter
+# Enforce presence of Minutes played
 if "Minutes played" not in df.columns:
     st.error("Arquivo não possui a coluna 'Minutes played'. Renomeie a coluna para exatamente 'Minutes played' e reenvié.")
     st.stop()
 
-before = df.shape[0]
-df = df[df["Minutes played"].fillna(0) >= int(min_minutes)].copy()
-after = df.shape[0]
-st.caption(f"Min minutes filter: showing {after} of {before} players (≥ {int(min_minutes)} min)")
+# Keep a global copy for calculations (radar/percentis) and create a view filtered only for Rankings display
+df_all = df.copy()
+df_view = df_all[df_all["Minutes played"].fillna(0) >= int(min_minutes)].copy()
+st.caption(
+    f"Filtro de minutos afeta apenas os **Rankings** (mostra {df_view.shape[0]} de {df_all.shape[0]} jogadores). "
+    "Cálculos de radar e percentis permanecem sobre o dataset completo."
+)
 
 # ===================== KPIs =====================
 st.subheader("Overview")
 col1, col2, col3, col4 = st.columns(4)
-with col1: st.markdown(f"<div class='metric-card'><div class='subtle small'>Players</div><h3>{df.shape[0]}</h3></div>", unsafe_allow_html=True)
-with col2: st.markdown(f"<div class='metric-card'><div class='subtle small'>Teams</div><h3>{df['Team'].nunique() if 'Team' in df.columns else '—'}</h3></div>", unsafe_allow_html=True)
-with col3: st.markdown(f"<div class='metric-card'><div class='subtle small'>Positions</div><h3>{df['Position'].nunique() if 'Position' in df.columns else '—'}</h3></div>", unsafe_allow_html=True)
-with col4: st.markdown(f"<div class='metric-card'><div class='subtle small'>Columns</div><h3>{df.shape[1]}</h3></div>", unsafe_allow_html=True)
+with col1: st.markdown(f"<div class='metric-card'><div class='subtle small'>Players</div><h3>{df_all.shape[0]}</h3></div>", unsafe_allow_html=True)
+with col2: st.markdown(f"<div class='metric-card'><div class='subtle small'>Teams</div><h3>{df_all['Team'].nunique() if 'Team' in df_all.columns else '—'}</h3></div>", unsafe_allow_html=True)
+with col3: st.markdown(f"<div class='metric-card'><div class='subtle small'>Positions</div><h3>{df_all['Position'].nunique() if 'Position' in df_all.columns else '—'}</h3></div>", unsafe_allow_html=True)
+with col4: st.markdown(f"<div class='metric-card'><div class='subtle small'>Columns</div><h3>{df_all.shape[1]}</h3></div>", unsafe_allow_html=True)
 
 # ===================== Rankings =====================
 st.markdown("<div class='section'>Rankings</div>", unsafe_allow_html=True)
 
 def _leaderboard(metric):
-    d = df.copy()
+    d = df_view.copy()
+    if d.empty:
+        st.info("Nenhum jogador atende ao filtro de minutos para exibição no ranking.")
+        return
     if team_filter:
         d = d[d["Team"].astype(str) == team_filter]
     if pos_filter:
         d = d[d["Position"].astype(str).str.contains(pos_filter)]
-    id_cols = [c for c in ID_COLS_CANDIDATES if c in d.columns]
+    id_cols = [c for c in ID_COLS_CANDIDATES if c in df_all.columns]
     cols = id_cols + [
         "Work Rate Offensive","Offensive Intensity","Offensive Explosion",
         "Work Rate Defensive","Defensive Intensity","Defensive Explosion",
         "Creativity","Progression","Defence","Passing Quality","Aerial Defence","Involvement","Discipline",
         "xG Buildup","Box Threat","Finishing","Poaching","Aerial Threat","npxG per 90","npxG per Shot","G-xG",
     ]
-    present = [c for c in cols if c in d.columns]
+    present = [c for c in cols if c in df_all.columns]
+    if metric not in df_all.columns:
+        st.warning(f"Métrica {metric} não encontrada no dataset.")
+        return
+    d = d.merge(df_all[["Player", metric]], on="Player", how="left", suffixes=("", ""))
     out = d.dropna(subset=[metric]).sort_values(metric, ascending=False).head(TOPN)
-    st.dataframe(out[present], use_container_width=True)
+    disp = out.merge(df_all[present], on="Player", how="left")
+    st.dataframe(disp[[c for c in present if c in disp.columns]].drop_duplicates("Player"), use_container_width=True)
 
 t1, t2, t3, t4, t5, t6 = st.tabs([
     "Work Rate Offensive","Offensive Intensity","Offensive Explosion",
