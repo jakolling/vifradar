@@ -74,7 +74,7 @@ def _fix_npxg_block(df):
 # ===================== CONFIG & STYLE =====================
 st.set_page_config(
     page_title="Composite Metrics & Radar",
-    page_icon="âš½",
+    page_icon="⚽",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -524,7 +524,7 @@ def compute_composite_metrics(df: pd.DataFrame, off_weights: dict[str, float]) -
         df["Defensive Explosion"] = safe_ratio(df["Prod_Defensiva_p90"], exp_events)
 
     if "Minutes played" not in df.columns:
-        raise ValueError("A coluna 'Minutes played' nÃ£o foi encontrada no arquivo enviado. Certifique-se de manter exatamente esse nome.")
+        raise ValueError("A coluna 'Minutes played' não foi encontrada no arquivo enviado. Certifique-se de manter exatamente esse nome.")
     return df
 
 # ===================== RADAR / UI HELPERS =====================
@@ -560,7 +560,7 @@ def _player_label(row: pd.Series) -> str:
             except Exception:
                 minutes = row[mcol]
             break
-    tail = f" â€” {team}" if team else ""
+    tail = f" — {team}" if team else ""
     if pos: tail += f" | {pos}"
     if minutes is not None: tail += f" | {minutes} min"
     return name + tail
@@ -608,7 +608,7 @@ def _metric_rank_info(dfin: pd.DataFrame, metric: str, player_name: str):
     total = int(s.shape[0]) if s.shape[0] > 0 else 0
     if total == 0:
         return {"rank": None, "total": 0, "value": np.nan, "norm": 0.0, "ascending": False}
-    ascending = metric in NEGATE_METRICS  # se True, menor Ã© melhor
+    ascending = metric in NEGATE_METRICS  # se True, menor é melhor
 
     # Rank ordinal (1 = melhor considerando ascending)
     r = s.rank(ascending=ascending, method="min")
@@ -634,8 +634,8 @@ def _metric_rank_info(dfin: pd.DataFrame, metric: str, player_name: str):
 def render_metric_rank_bars(dfin: pd.DataFrame, player_a: str, metrics: list[str], player_b: str | None = None):
     if not metrics:
         return
-    st.markdown("### ðŸ“Š Ranking por mÃ©trica")
-    st.caption("Barra indica desempenho relativo; rÃ³tulo mostra a posiÃ§Ã£o no ranking (1 = melhor).")
+    st.markdown("### 📊 Ranking por métrica")
+    st.caption("Barra indica desempenho relativo; rótulo mostra a posição no ranking (1 = melhor).")
 
     def _render_for(player_name: str, header: str):
         st.markdown(f"**{header}:** {player_name}")
@@ -647,7 +647,7 @@ def render_metric_rank_bars(dfin: pd.DataFrame, player_a: str, metrics: list[str
             with c:
                 info = _metric_rank_info(dfin, m, player_name)
                 rk, tot, val, norm = info["rank"], info["total"], info["value"], info["norm"]
-                label = f"{m} â€” {rk}/{tot}" if rk is not None else f"{m} â€” n/a"
+                label = f"{m} — {rk}/{tot}" if rk is not None else f"{m} — n/a"
                 fig, ax = plt.subplots(figsize=(4, 0.6))
                 ax.barh([0], [norm])
                 ax.set_xlim(0, 1)
@@ -714,7 +714,7 @@ def make_radar_bars_png(df: pd.DataFrame, player_a: str, player_b: str | None, m
             ax = fig.add_subplot(gs[2 + r, c])
             info = _metric_rank_info(df, m, player_name)
             rk, tot, norm = info["rank"], info["total"], info["norm"]
-            label = f"{m} â€” {rk}/{tot}" if rk is not None else f"{m} â€” n/a"
+            label = f"{m} — {rk}/{tot}" if rk is not None else f"{m} — n/a"
             ax.barh([0], [norm])
             ax.set_xlim(0, 1)
             ax.set_yticks([])
@@ -790,7 +790,7 @@ def make_radar_bars_pdf_a4(df: pd.DataFrame, player_a: str, player_b: str | None
     def _draw_bar(ax, m, player_name):
         info = _metric_rank_info(df, m, player_name)
         rk, tot, norm = info["rank"], info["total"], info["norm"]
-        label = f"{m} â€” {rk}/{tot}" if rk is not None else f"{m} â€” n/a"
+        label = f"{m} — {rk}/{tot}" if rk is not None else f"{m} — n/a"
         ax.barh([0], [norm])
         ax.set_xlim(0, 1)
         ax.set_yticks([])
@@ -816,8 +816,8 @@ def make_radar_bars_pdf_a4(df: pd.DataFrame, player_a: str, player_b: str | None
     return buf
 
 
-# ===================== SIDEBAR â€” Controls =====================
-st.sidebar.header("âš™ï¸ Settings")
+# ===================== SIDEBAR — Controls =====================
+st.sidebar.header("⚙️ Settings")
 up = st.sidebar.file_uploader("Upload merged Excel (WyScout + SkillCorner)", type=["xlsx"])
 TOPN = st.sidebar.slider("Top N per ranking", 5, 50, 10, 1)
 pos_filter = st.sidebar.text_input("Filter by Position (regex)", value="")
@@ -828,14 +828,14 @@ min_minutes = st.sidebar.number_input(
     min_value=0,
     value=0,
     step=90,
-    help="Apenas os Rankings respeitarÃ£o este filtro. Radar e percentis usam o dataset completo."
+    help="Apenas os Rankings respeitarão este filtro. Radar e percentis usam o dataset completo."
 )
 
 # ===================== SIDEBAR NAVIGATION =====================
-page = st.sidebar.radio("ðŸ“‘ Pages", ["Dashboard", "Metrics Documentation", "Ferramenta de Busca"])
+page = st.sidebar.radio("📑 Pages", ["Dashboard", "Metrics Documentation", "Ferramenta de Busca"])
 
 if page == "Metrics Documentation":
-    st.title("ðŸ“˜ Composite Metrics Documentation")
+    st.title("📘 Composite Metrics Documentation")
     st.caption("Explanation of each composite metric and how it is calculated.")
 
     st.header("Offensive Metrics")
@@ -855,8 +855,8 @@ Weights are predefined (higher for xG/xA/key passes, lower for crosses/touches).
 **Defensive Production (per 90)**  
 Sum of:  
 - Successful defensive actions per 90  
-- Defensive duel efficiency *(duels Ã— win%)*  
-- Aerial duel efficiency *(duels Ã— win%)*  
+- Defensive duel efficiency *(duels × win%)*  
+- Aerial duel efficiency *(duels × win%)*  
 - Sliding tackles *(possession-adjusted)*  
 - Interceptions *(possession-adjusted)*  
 - Shots blocked per 90  
@@ -866,19 +866,19 @@ Sum of:
     st.markdown("""
 These normalize offensive and defensive production by physical output:
 
-- **Work Rate Offensive** = *Offensive Production* Ã· *Total Distance (km per 90)*  
-- **Work Rate Defensive** = *Defensive Production* Ã· *Total Distance (km per 90)*  
+- **Work Rate Offensive** = *Offensive Production* ÷ *Total Distance (km per 90)*  
+- **Work Rate Defensive** = *Defensive Production* ÷ *Total Distance (km per 90)*  
 
-- **Offensive Intensity** = *Offensive Production* Ã· *(High-intensity + Running Distance, km per 90)*  
-- **Defensive Intensity** = *Defensive Production* Ã· *(High-intensity + Running Distance, km per 90)*  
+- **Offensive Intensity** = *Offensive Production* ÷ *(High-intensity + Running Distance, km per 90)*  
+- **Defensive Intensity** = *Defensive Production* ÷ *(High-intensity + Running Distance, km per 90)*  
 
-- **Offensive Explosion** = *Offensive Production* Ã· *Explosive Events* *(HSR, Sprints, Explosive Accelerations)*  
-- **Defensive Explosion** = *Defensive Production* Ã· *Explosive Events*
+- **Offensive Explosion** = *Offensive Production* ÷ *Explosive Events* *(HSR, Sprints, Explosive Accelerations)*  
+- **Defensive Explosion** = *Defensive Production* ÷ *Explosive Events*
     """)
 
     st.header("Radar Composite Metrics")
     st.markdown("""
-These are normalized **[0â€“100]** composites built from z-scores of component stats:
+These are normalized **[0–100]** composites built from z-scores of component stats:
 
 - **xG Buildup**: weighted mix of xA, shot assists, npxG, key passes, deep completions, accurate passing.  
 - **Creativity**: smart passes, through passes, passes to penalty area + their accuracy.  
@@ -897,12 +897,12 @@ These are normalized **[0â€“100]** composites built from z-scores of compon
     st.stop()
 
 # ===================== MAIN =====================
-st.title("âš½ Composite Metrics & Radar")
+st.title("⚽ Composite Metrics & Radar")
 st.caption("Integrated with composite metrics + physical/technical composites")
 
 df = None
 if demo_mode:
-    st.warning("Demo mode is ON â€” synthetic sample loaded.")
+    st.warning("Demo mode is ON — synthetic sample loaded.")
     df_demo = pd.DataFrame({
         "Player": ["Player A","Player B","Player C"],
         "Team": ["X","Y","Z"],
@@ -974,26 +974,26 @@ if demo_mode:
     })
     df = compute_composite_metrics(df_demo, DEFAULT_OFF_WEIGHTS)
 elif page == "Ferramenta de Busca":
-    st.title("ðŸ”Ž Ferramenta de Busca")
-    st.caption("Filtre jogadores por **percentis mÃ­nimos** em um *position preset*. Os percentis sÃ£o calculados no **dataset completo** (com inversÃ£o de mÃ©tricas negativas), enquanto o filtro de **minutos** Ã© aplicado ao final.")
+    st.title("🔎 Ferramenta de Busca")
+    st.caption("Filtre jogadores por **percentis mínimos** em um *position preset*. Os percentis são calculados no **dataset completo** (com inversão de métricas negativas), enquanto o filtro de **minutos** é aplicado ao final.")
 
-    # SeleÃ§Ã£o de preset e configuraÃ§Ã£o dos limiares
+    # Seleção de preset e configuração dos limiares
     preset_name = st.selectbox("Position preset", options=list(PRESETS.keys()))
     metrics_for_preset = PRESETS[preset_name]
 
-    use_global = st.checkbox("Usar um Ãºnico percentil mÃ­nimo para todas as mÃ©tricas", value=True)
-    global_min = st.slider("Percentil mÃ­nimo (todas as mÃ©tricas)", 0, 100, 70, help="Aplica-se somente se a opÃ§Ã£o acima estiver marcada.")
+    use_global = st.checkbox("Usar um único percentil mínimo para todas as métricas", value=True)
+    global_min = st.slider("Percentil mínimo (todas as métricas)", 0, 100, 70, help="Aplica-se somente se a opção acima estiver marcada.")
 
-    # Limiares por mÃ©trica
+    # Limiares por métrica
     thresholds = {}
     if use_global:
         thresholds = {m: global_min for m in metrics_for_preset}
     else:
-        st.markdown("#### Limiares por mÃ©trica")
+        st.markdown("#### Limiares por métrica")
         for m in metrics_for_preset:
             thresholds[m] = st.slider(f"{m}", 0, 100, 70)
 
-    # CÃ¡lculo de percentis por mÃ©trica (dataset completo)
+    # Cálculo de percentis por métrica (dataset completo)
     def _bounds_from_series(s: pd.Series, metric: str):
         s_num = pd.to_numeric(s, errors="coerce")
         if metric in NEGATE_METRICS:
@@ -1036,7 +1036,7 @@ elif page == "Ferramenta de Busca":
     for m, col in percent_cols.items():
         res[f"{m} (pct)"] = col
 
-    # Aplica filtros de minutes, team e posiÃ§Ã£o jÃ¡ existentes
+    # Aplica filtros de minutes, team e posição já existentes
     if "Minutes played" in res.columns:
         min_col = "Minutes played"
     elif "Minutes" in res.columns:
@@ -1055,18 +1055,18 @@ elif page == "Ferramenta de Busca":
         if "Position" in res.columns:
             res = res[res["Position"].astype(str).str.contains(pos_filter)]
 
-    # Filtro por percentis mÃ­nimos (todas as mÃ©tricas do preset)
+    # Filtro por percentis mínimos (todas as métricas do preset)
     mask = pd.Series(True, index=res.index)
     for m in metrics_for_preset:
         pct_col = f"{m} (pct)"
         if pct_col in res.columns:
             mask &= (pd.to_numeric(res[pct_col], errors="coerce") >= thresholds.get(m, 0))
         else:
-            # Se a mÃ©trica nÃ£o existir, o jogador falha no critÃ©rio
+            # Se a métrica não existir, o jogador falha no critério
             mask &= False
     res = res[mask]
 
-    # OrdenaÃ§Ã£o por mÃ©dia dos percentis do preset (opcional)
+    # Ordenação por média dos percentis do preset (opcional)
     pct_cols = [f"{m} (pct)" for m in metrics_for_preset if f"{m} (pct)" in res.columns]
     if pct_cols:
         res["Media pct (preset)"] = res[pct_cols].mean(axis=1)
@@ -1077,7 +1077,7 @@ elif page == "Ferramenta de Busca":
     show_cols = [c for c in show_cols if c in res.columns]
     st.markdown(f"**Jogadores encontrados:** {len(res)}")
     if len(show_cols) == 0:
-        st.info("Nenhuma coluna vÃ¡lida para exibir.")
+        st.info("Nenhuma coluna válida para exibir.")
     else:
         st.dataframe(res[show_cols].reset_index(drop=True))
 
@@ -1089,7 +1089,7 @@ else:
     if up is None:
         st.info("Upload your merged Excel on the left panel to begin (or enable Demo mode).")
     else:
-        with st.spinner("Loading data and computing metricsâ€¦"):
+        with st.spinner("Loading data and computing metrics…"):
             try:
                 df_raw = _load_excel(up)
                 df = compute_composite_metrics(df_raw, DEFAULT_OFF_WEIGHTS)
@@ -1102,7 +1102,7 @@ if df is None or df.empty:
 
 # Enforce presence of Minutes played
 if "Minutes played" not in df.columns:
-    st.error("Arquivo nÃ£o possui a coluna 'Minutes played'. Renomeie a coluna para exatamente 'Minutes played' e reenviÃ©.")
+    st.error("Arquivo não possui a coluna 'Minutes played'. Renomeie a coluna para exatamente 'Minutes played' e reenvié.")
     st.stop()
 
 # Keep global (df_all) for all calculations; df_view only controls Rankings listing
@@ -1112,15 +1112,15 @@ df_all = _fix_npxg_block(df_all)
 df_view = df_all[df_all["Minutes played"].fillna(0) >= int(min_minutes)].copy()
 st.caption(
     f"Filtro de minutos afeta apenas os **Rankings** (mostra {df_view.shape[0]} de {df_all.shape[0]} jogadores). "
-    "CÃ¡lculos de radar e percentis permanecem sobre o dataset completo."
+    "Cálculos de radar e percentis permanecem sobre o dataset completo."
 )
 
 # ===================== KPIs =====================
 st.subheader("Overview")
 col1, col2, col3, col4 = st.columns(4)
 with col1: st.markdown(f"<div class='metric-card'><div class='subtle small'>Players</div><h3>{df_all.shape[0]}</h3></div>", unsafe_allow_html=True)
-with col2: st.markdown(f"<div class='metric-card'><div class='subtle small'>Teams</div><h3>{df_all['Team'].nunique() if 'Team' in df_all.columns else 'â€”'}</h3></div>", unsafe_allow_html=True)
-with col3: st.markdown(f"<div class='metric-card'><div class='subtle small'>Positions</div><h3>{df_all['Position'].nunique() if 'Position' in df_all.columns else 'â€”'}</h3></div>", unsafe_allow_html=True)
+with col2: st.markdown(f"<div class='metric-card'><div class='subtle small'>Teams</div><h3>{df_all['Team'].nunique() if 'Team' in df_all.columns else '—'}</h3></div>", unsafe_allow_html=True)
+with col3: st.markdown(f"<div class='metric-card'><div class='subtle small'>Positions</div><h3>{df_all['Position'].nunique() if 'Position' in df_all.columns else '—'}</h3></div>", unsafe_allow_html=True)
 with col4: st.markdown(f"<div class='metric-card'><div class='subtle small'>Columns</div><h3>{df_all.shape[1]}</h3></div>", unsafe_allow_html=True)
 
 # ===================== Rankings =====================
@@ -1129,14 +1129,14 @@ st.markdown("<div class='section'>Rankings</div>", unsafe_allow_html=True)
 def _leaderboard(metric):
     d = df_view.copy()
     if d.empty:
-        st.info("Nenhum jogador atende ao filtro de minutos para exibiÃ§Ã£o no ranking.")
+        st.info("Nenhum jogador atende ao filtro de minutos para exibição no ranking.")
         return
     if team_filter:
         d = d[d["Team"].astype(str) == team_filter]
     if pos_filter:
         d = d[d["Position"].astype(str).str.contains(pos_filter)]
     if metric not in d.columns:
-        st.warning(f"MÃ©trica {metric} nÃ£o encontrada no dataset.")
+        st.warning(f"Métrica {metric} não encontrada no dataset.")
         return
     id_cols = [c for c in ID_COLS_CANDIDATES if c in d.columns]
     cols = id_cols + [
@@ -1203,26 +1203,26 @@ with colA:
 
     players = sorted(df_all["Player"].dropna().unique().tolist()) if "Player" in df_all.columns else []
     p1 = st.selectbox("Player A", players)
-    p2 = st.selectbox("Player B (optional)", ["â€”"] + players)
+    p2 = st.selectbox("Player B (optional)", ["—"] + players)
     color_a = st.color_picker("Color A", "#2A9D8F")
     color_b = st.color_picker("Color B", "#E76F51")
 # Download button for combined PNG
 if p1 and metrics_sel:
-    png_buf = make_radar_bars_png(df_all, p1, None if p2 == "â€”" else p2, metrics_sel, color_a, color_b)
-    st.download_button("â¬‡ï¸ Download Radar + Barras (PNG)", data=png_buf.getvalue(),
+    png_buf = make_radar_bars_png(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b)
+    st.download_button("⬇️ Download Radar + Barras (PNG)", data=png_buf.getvalue(),
                        file_name="radar_barras.png", mime="image/png")
 
 # Download button for A4 PDF
 if p1 and metrics_sel:
-    pdf_buf = make_radar_bars_pdf_a4(df_all, p1, None if p2 == "â€”" else p2, metrics_sel, color_a, color_b)
-    st.download_button("â¬‡ï¸ Download Radar + Barras (PDF A4)", data=pdf_buf.getvalue(),
+    pdf_buf = make_radar_bars_pdf_a4(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b)
+    st.download_button("⬇️ Download Radar + Barras (PDF A4)", data=pdf_buf.getvalue(),
                        file_name="radar_barras_A4.pdf", mime="application/pdf")
 
 
 with colB:
     if p1 and metrics_sel:
-        plot_radar(df_all, p1, None if p2 == "â€”" else p2, metrics_sel, color_a, color_b)
-        render_metric_rank_bars(df_all, p1, metrics_sel, None if p2 == "â€”" else p2)
+        plot_radar(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b)
+        render_metric_rank_bars(df_all, p1, metrics_sel, None if p2 == "—" else p2)
 
 # ===================== Export =====================
 st.markdown("<div class='section'>Export</div>", unsafe_allow_html=True)
