@@ -1020,18 +1020,18 @@ with colA:
     p2 = st.selectbox("Player B (optional)", ["—"] + players)
     color_a = st.color_picker("Color A", "#2A9D8F")
     color_b = st.color_picker("Color B", "#E76F51")
-
-    # Download button for combined PNG
-    if p1 and metrics_sel:
-        png_buf = make_radar_bars_png(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b)
-        st.download_button("⬇️ Download Radar + Barras (PNG)", data=png_buf.getvalue()
+# Download button for combined PNG
+if p1 and metrics_sel:
+    png_buf = make_radar_bars_png(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b)
+    st.download_button("⬇️ Download Radar + Barras (PNG)", data=png_buf.getvalue(),
+                       file_name="radar_barras.png", mime="image/png")
 
 # Download button for A4 PDF
 if p1 and metrics_sel:
     pdf_buf = make_radar_bars_pdf_a4(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b)
     st.download_button("⬇️ Download Radar + Barras (PDF A4)", data=pdf_buf.getvalue(),
                        file_name="radar_barras_A4.pdf", mime="application/pdf")
-, file_name="radar_barras.png", mime="image/png")
+
 
 with colB:
     if p1 and metrics_sel:
