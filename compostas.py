@@ -832,7 +832,7 @@ min_minutes = st.sidebar.number_input(
 )
 
 # ===================== SIDEBAR NAVIGATION =====================
-page = st.sidebar.radio("📑 Pages", ["Dashboard", "Metrics Documentation"])
+page = st.sidebar.radio("📑 Pages", ["Dashboard", "Metrics Documentation", "Ferramenta de Busca"])
 
 if page == "Metrics Documentation":
     st.title("📘 Composite Metrics Documentation")
@@ -973,6 +973,118 @@ if demo_mode:
         "Explosive Acceleration to Sprint Count P90":[1,1,1],
     })
     df = compute_composite_metrics(df_demo, DEFAULT_OFF_WEIGHTS)
+elif page == "Ferramenta de Busca":
+    st.title("🔎 Ferramenta de Busca")
+    st.caption("Filtre jogadores por **percentis mínimos** em um *position preset*. Os percentis são calculados no **dataset completo** (com inversão de métricas negativas), enquanto o filtro de **minutos** é aplicado ao final.")
+
+    # Seleção de preset e configuração dos limiares
+    preset_name = st.selectbox("Position preset", options=list(PRESETS.keys()))
+    metrics_for_preset = PRESETS[preset_name]
+
+    use_global = st.checkbox("Usar um único percentil mínimo para todas as métricas", value=True)
+    global_min = st.slider("Percentil mínimo (todas as métricas)", 0, 100, 70, help="Aplica-se somente se a opção acima estiver marcada.")
+
+    # Limiares por métrica
+    thresholds = {}
+    if use_global:
+        thresholds = {m: global_min for m in metrics_for_preset}
+    else:
+        st.markdown("#### Limiares por métrica")
+        for m in metrics_for_preset:
+            thresholds[m] = st.slider(f"{m}", 0, 100, 70)
+
+    # Cálculo de percentis por métrica (dataset completo)
+    def _bounds_from_series(s: pd.Series, metric: str):
+        s_num = pd.to_numeric(s, errors="coerce")
+        if metric in NEGATE_METRICS:
+            s_num = -s_num
+        lo = np.nanpercentile(s_num, 5); hi = np.nanpercentile(s_num, 95)
+        if not np.isfinite(lo) or not np.isfinite(hi) or lo == hi:
+            lo = np.nanmin(s_num); hi = np.nanmax(s_num)
+        if lo == hi:
+            hi = lo + 1e-6
+        return float(lo), float(hi)
+
+    bounds = {}
+    for m in metrics_for_preset:
+        if m in df_all.columns:
+            lo, hi = _bounds_from_series(df_all[m], m)
+            bounds[m] = (lo, hi)
+
+    def _to_percentile(value, metric):
+        if pd.isna(value) or metric not in bounds:
+            return np.nan
+        lo, hi = bounds[metric]
+        v = pd.to_numeric(value, errors="coerce")
+        if metric in NEGATE_METRICS:
+            v = -v
+        pct = (v - lo) / (hi - lo) * 100.0
+        return float(np.clip(pct, 0, 100))
+
+    # Monta tabela de percentis por jogador
+    base_cols = []
+    for c in ["Player", "Short Name", "Team", "Position", "Minutes played", "Minutes"]:
+        if c in df_all.columns and c not in base_cols:
+            base_cols.append(c)
+
+    percent_cols = {}
+    for m in metrics_for_preset:
+        if m in df_all.columns:
+            percent_cols[m] = df_all[m].apply(lambda x, mm=m: _to_percentile(x, mm))
+
+    res = df_all.copy()
+    for m, col in percent_cols.items():
+        res[f"{m} (pct)"] = col
+
+    # Aplica filtros de minutes, team e posição já existentes
+    if "Minutes played" in res.columns:
+        min_col = "Minutes played"
+    elif "Minutes" in res.columns:
+        min_col = "Minutes"
+    else:
+        min_col = None
+
+    if min_col is not None and isinstance(min_minutes, (int, float)):
+        res = res[pd.to_numeric(res[min_col], errors="coerce").fillna(0) >= float(min_minutes)]
+
+    if team_filter:
+        if "Team" in res.columns:
+            res = res[res["Team"].astype(str) == team_filter]
+
+    if pos_filter:
+        if "Position" in res.columns:
+            res = res[res["Position"].astype(str).str.contains(pos_filter)]
+
+    # Filtro por percentis mínimos (todas as métricas do preset)
+    mask = pd.Series(True, index=res.index)
+    for m in metrics_for_preset:
+        pct_col = f"{m} (pct)"
+        if pct_col in res.columns:
+            mask &= (pd.to_numeric(res[pct_col], errors="coerce") >= thresholds.get(m, 0))
+        else:
+            # Se a métrica não existir, o jogador falha no critério
+            mask &= False
+    res = res[mask]
+
+    # Ordenação por média dos percentis do preset (opcional)
+    pct_cols = [f"{m} (pct)" for m in metrics_for_preset if f"{m} (pct)" in res.columns]
+    if pct_cols:
+        res["Media pct (preset)"] = res[pct_cols].mean(axis=1)
+        res = res.sort_values("Media pct (preset)", ascending=False)
+
+    # Mostra resultados
+    show_cols = base_cols + pct_cols
+    show_cols = [c for c in show_cols if c in res.columns]
+    st.markdown(f"**Jogadores encontrados:** {len(res)}")
+    if len(show_cols) == 0:
+        st.info("Nenhuma coluna válida para exibir.")
+    else:
+        st.dataframe(res[show_cols].reset_index(drop=True))
+
+    # Download
+    csv_bytes = res[show_cols].to_csv(index=False).encode("utf-8") if show_cols else b""
+    st.download_button("Baixar resultados (CSV)", data=csv_bytes, file_name="busca_percentis.csv", mime="text/csv")
+
 else:
     if up is None:
         st.info("Upload your merged Excel on the left panel to begin (or enable Demo mode).")
