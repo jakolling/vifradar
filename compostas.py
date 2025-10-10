@@ -10,25 +10,66 @@ from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
 from mplsoccer import Radar
 
 
+from datetime import datetime, date
+
+def _player_age(row):
+    # Try common age fields
+    for key in ["Age", "age"]:
+        if key in row and row[key] is not None:
+            try:
+                val = int(float(row[key]))
+                if val > 0:
+                    return val
+            except Exception:
+                pass
+    # Try DOB parsing (YYYY-MM-DD or DD/MM/YYYY etc.)
+    for key in ["DOB", "Date of Birth", "Birthdate", "Birth Date"]:
+        if key in row and isinstance(row[key], str) and row[key].strip():
+            txt = row[key].strip()
+            # try multiple formats
+            fmts = ["%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%m/%d/%Y", "%Y/%m/%d"]
+            for fmt in fmts:
+                try:
+                    dob = datetime.strptime(txt, fmt).date()
+                    today = date.today()
+                    age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+                    if age > 0:
+                        return age
+                except Exception:
+                    continue
+    # Try Birth Year
+    for key in ["Birth Year", "Birth year", "YOB", "Year of Birth"]:
+        if key in row and row[key] is not None:
+            try:
+                year = int(float(row[key]))
+                today = date.today()
+                age = today.year - year
+                if 10 < age < 60:
+                    return age
+            except Exception:
+                pass
+    return None
+
+
+
 def _fix_npxg_block(df):
     import numpy as np
-    import pandas as pd
-    # npxG bruto
     if "xG" in df.columns and "Penalties taken" in df.columns:
         df["npxG"] = df["xG"].fillna(0) - df["Penalties taken"].fillna(0) * 0.81
-    # npxG per 90
+    # per 90
     if "npxG" in df.columns and "Minutes played" in df.columns:
         with np.errstate(divide="ignore", invalid="ignore"):
-            mp = pd.to_numeric(df["Minutes played"], errors="coerce").replace(0, np.nan).astype(float)
-            df["npxG per 90"] = (pd.to_numeric(df["npxG"], errors="coerce").astype(float) / mp) * 90.0
-    # npxG por finalização
+            mp = df["Minutes played"].replace(0, np.nan).astype(float)
+            df["npxG per 90"] = (df["npxG"].astype(float) / mp) * 90.0
+    # per shot
     if "npxG" in df.columns and "Shots" in df.columns:
         with np.errstate(divide="ignore", invalid="ignore"):
-            df["npxG per Shot"] = pd.to_numeric(df["npxG"], errors="coerce").astype(float) / pd.to_numeric(df["Shots"], errors="coerce").replace(0, np.nan).astype(float)
+            df["npxG per Shot"] = df["npxG"].astype(float) / df["Shots"].replace(0, np.nan).astype(float)
     # G-xG
     if "Goals" in df.columns and "xG" in df.columns:
         df["G-xG"] = df["Goals"].fillna(0) - df["xG"].fillna(0)
     return df
+
 
 # ===================== CONFIG & STYLE =====================
 st.set_page_config(
@@ -657,7 +698,7 @@ def make_radar_bars_png(df: pd.DataFrame, player_a: str, player_b: str | None, m
 
     title_a = _player_label(row_a)
     title = title_a if row_b is None else f"{title_a} vs {_player_label(row_b)}"
-    ax_radar.set_title(title, fontsize=14, pad=16)
+    ax_radar.set_title(title, fontsize=20, weight="bold", pad=18)
 
     # Bar blocks (player A then optional player B)
     def _draw_bar_block(start_row: int, player_name: str):
@@ -687,6 +728,87 @@ def make_radar_bars_png(df: pd.DataFrame, player_a: str, player_b: str | None, m
     plt.close(fig)
     buf.seek(0)
     return buf
+
+
+# ======= Build an A4 PDF (Radar 3/4 + Bars 1/4) =======
+def make_radar_bars_pdf_a4(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
+                           color_a: str, color_b: str = "#E76F51") -> io.BytesIO:
+    metrics = (metrics or [])[:16]
+    lowers, uppers = _bounds_from_df(df, metrics)
+    radar = Radar(metrics, lowers, uppers, num_rings=4)
+
+    row_a = df[df["Player"] == player_a].iloc[0]
+    v_a = _values_for_player(row_a, metrics)
+
+    v_b = None
+    title_a = _player_label(row_a)
+    title = title_a
+    age_a = _player_age(row_a)
+    if age_a is not None:
+        title_a = f"{title_a} ({age_a})"
+    title = title_a
+    if player_b:
+        row_b = df[df["Player"] == player_b].iloc[0]
+        v_b = _values_for_player(row_b, metrics)
+        title_b = _player_label(row_b)
+        age_b = _player_age(row_b)
+        if age_b is not None:
+            title_b = f"{title_b} ({age_b})"
+        title = f"{title_a} vs {title_b}"
+
+    # A4 portrait in inches
+    fig = plt.figure(figsize=(8.27, 11.69), constrained_layout=True)
+    gs_main = GridSpec(nrows=2, ncols=1, height_ratios=[2.6, 1], figure=fig)
+
+    # ---- Radar area (3/4 of the page) ----
+    ax_radar = fig.add_subplot(gs_main[0, 0])
+    radar.setup_axis(ax=ax_radar)
+    radar.draw_circles(ax=ax_radar, facecolor="#f3f3f3", edgecolor="#c9c9c9", alpha=0.18)
+    try:
+        radar.spoke(ax=ax_radar, color="#c9c9c9", linestyle="--", alpha=0.18)
+    except Exception:
+        pass
+
+    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": color_a+"33", "edgecolor": color_a, "linewidth": 2})
+    if v_b is not None:
+        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": color_b+"33", "edgecolor": color_b, "linewidth": 2})
+    radar.draw_range_labels(ax=ax_radar, fontsize=9)
+    radar.draw_param_labels(ax=ax_radar, fontsize=10)
+    ax_radar.set_title(title, fontsize=20, weight="bold", pad=18)
+
+    # ---- Bars area (1/4 of the page) ----
+    cols_per_row = 3
+    total_bar_rows = (len(metrics) + cols_per_row - 1) // cols_per_row
+    sub_gs = GridSpecFromSubplotSpec(nrows=total_bar_rows, ncols=cols_per_row, subplot_spec=gs_main[1, 0])
+
+    def _draw_bar(ax, m, player_name):
+        info = _metric_rank_info(df, m, player_name)
+        rk, tot, norm = info["rank"], info["total"], info["norm"]
+        label = f"{m} — {rk}/{tot}" if rk is not None else f"{m} — n/a"
+        ax.barh([0], [norm])
+        ax.set_xlim(0, 1)
+        ax.set_yticks([])
+        ax.set_xticks([0, 0.5, 1])
+        ax.set_xticklabels(["0%","50%","100%"], fontsize=7)
+        ax.set_title(label, fontsize=9, pad=2)
+        for spine in ["top","right","left"]:
+            ax.spines[spine].set_visible(False)
+
+    # Draw bars for player A (and overwrite with player B values if present side-by-side not requested)
+    # Here we'll plot player A only to keep bars legible in a limited height area.
+    for i, m in enumerate(metrics):
+        r = i // cols_per_row
+        c = i % cols_per_row
+        ax = fig.add_subplot(sub_gs[r, c])
+        _draw_bar(ax, m, player_a)
+
+    # Save into an in-memory PDF
+    buf = io.BytesIO()
+    fig.savefig(buf, format="pdf", bbox_inches="tight", pad_inches=0.2)
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
 
 # ===================== SIDEBAR — Controls =====================
 st.sidebar.header("⚙️ Settings")
@@ -966,11 +1088,18 @@ with colA:
     p2 = st.selectbox("Player B (optional)", ["—"] + players)
     color_a = st.color_picker("Color A", "#2A9D8F")
     color_b = st.color_picker("Color B", "#E76F51")
+# Download button for combined PNG
+if p1 and metrics_sel:
+    png_buf = make_radar_bars_png(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b)
+    st.download_button("⬇️ Download Radar + Barras (PNG)", data=png_buf.getvalue(),
+                       file_name="radar_barras.png", mime="image/png")
 
-    # Download button for combined PNG
-    if p1 and metrics_sel:
-        png_buf = make_radar_bars_png(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b)
-        st.download_button("⬇️ Download Radar + Barras (PNG)", data=png_buf.getvalue(), file_name="radar_barras.png", mime="image/png")
+# Download button for A4 PDF
+if p1 and metrics_sel:
+    pdf_buf = make_radar_bars_pdf_a4(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b)
+    st.download_button("⬇️ Download Radar + Barras (PDF A4)", data=pdf_buf.getvalue(),
+                       file_name="radar_barras_A4.pdf", mime="application/pdf")
+
 
 with colB:
     if p1 and metrics_sel:
@@ -985,182 +1114,3 @@ st.download_button(
     file_name="composite_metrics_base.csv",
     mime="text/csv",
 )
-
-
-
-def make_player_report_pdf(df, player_a, player_b, metrics, color_a="#2A9D8F", color_b="#E76F51",
-                           header_text=None, signature_text=None):
-    import io
-    from datetime import date as _date
-    import numpy as np
-    import pandas as pd
-    import matplotlib.pyplot as plt
-    from matplotlib.gridspec import GridSpecFromSubplotSpec
-
-    def _bounds_from_df(df, metrics):
-        lowers, uppers = [], []
-        for m in metrics:
-            s = pd.to_numeric(df[m], errors="coerce")
-            lowers.append(float(np.nanmin(s)))
-            uppers.append(float(np.nanmax(s)))
-        return lowers, uppers
-
-    def _values_for_player(row, metrics):
-        vals = []
-        for m in metrics:
-            vals.append(float(row[m]) if m in row and row[m] is not None else np.nan)
-        return vals
-
-    def _player_label(row):
-        parts = []
-        for key in ["Player", "Team within selected timeframe", "Team", "League within selected timeframe", "League"]:
-            if key in row and row[key] is not None and str(row[key]).strip():
-                parts.append(str(row[key]).strip())
-        return " — ".join(parts[:3]) if parts else "Player"
-
-    def _player_age(row):
-        for key in ["Age", "age"]:
-            if key in row and row[key] is not None:
-                try:
-                    val = int(float(row[key]))
-                    if val > 0:
-                        return val
-                except Exception:
-                    pass
-        return None
-
-    def _metric_rank_info(df, metric, player_name):
-        s = pd.to_numeric(df[metric], errors="coerce")
-        order = s.rank(method="min", ascending=False)
-        tot = int(order.notna().sum())
-        try:
-            rk = int(order.loc[df["Player"] == player_name].iloc[0])
-        except Exception:
-            rk = None
-
-        if tot > 0:
-            smin = float(s.min())
-            smax = float(s.max())
-            rng = smax - smin
-            if not np.isfinite(rng) or rng == 0:
-                norm = 0.0
-            else:
-                try:
-                    val = float(s.loc[df["Player"] == player_name].iloc[0])
-                    norm = (val - smin) / (rng + 1e-9)
-                    if not np.isfinite(norm):
-                        norm = 0.0
-                    norm = float(np.clip(norm, 0.0, 1.0))
-                except Exception:
-                    norm = 0.0
-        else:
-            norm = 0.0
-
-        return {"rank": rk, "total": tot, "norm": norm}
-
-    metrics = (metrics or [])[:16]
-    lowers, uppers = _bounds_from_df(df, metrics)
-    radar = Radar(metrics, lowers, uppers, num_rings=4)
-
-    row_a = df[df["Player"] == player_a].iloc[0]
-    v_a = _values_for_player(row_a, metrics)
-
-    v_b = None
-    title_a = _player_label(row_a)
-    age_a = _player_age(row_a)
-    if age_a is not None:
-        title_a = f"{title_a} ({age_a})"
-    title = title_a
-
-    if player_b:
-        row_b = df[df["Player"] == player_b].iloc[0]
-        v_b = _values_for_player(row_b, metrics)
-        title_b = _player_label(row_b)
-        age_b = _player_age(row_b)
-        if age_b is not None:
-            title_b = f"{title_b} ({age_b})"
-        title = f"{title_a} vs {title_b}"
-
-    fig = plt.figure(figsize=(8.27, 11.69))
-    gs = fig.add_gridspec(nrows=6, ncols=1,
-                          height_ratios=[0.55, 2.45, 0.12, 1.05, 0.12, 0.45],
-                          left=0.07, right=0.93, top=0.95, bottom=0.07)
-
-    # Header
-    ax_header = fig.add_subplot(gs[0, 0])
-    ax_header.axis("off")
-    if header_text is None:
-        header_text = "VIF Radar — Player Report"
-    ax_header.text(0.0, 0.65, header_text, ha="left", va="center", fontsize=12, weight="bold")
-    ax_header.text(1.0, 0.65, _date.today().isoformat(), ha="right", va="center", fontsize=10, alpha=0.85)
-    ax_header.hlines(0.08, 0.0, 1.0, transform=ax_header.transAxes, linewidth=0.9, alpha=0.5)
-
-    # Radar
-    ax_radar = fig.add_subplot(gs[1, 0])
-    radar.setup_axis(ax=ax_radar)
-    radar.draw_circles(ax=ax_radar, facecolor="#f3f3f3", edgecolor="#c9c9c9", alpha=0.18)
-    try:
-        radar.spoke(ax=ax_radar, color="#c9c9c9", linestyle="--", alpha=0.18)
-    except Exception:
-        pass
-    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": color_a+"33", "edgecolor": color_a, "linewidth": 2})
-    if v_b is not None:
-        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": color_b+"33", "edgecolor": color_b, "linewidth": 2})
-    radar.draw_range_labels(ax=ax_radar, fontsize=9)
-    radar.draw_param_labels(ax=ax_radar, fontsize=11)
-    ax_radar.set_title(title, fontsize=22, weight="bold", pad=18)
-
-    # Bars
-    cols_per_row = 3
-    total_bar_rows = (len(metrics) + cols_per_row - 1) // cols_per_row
-    bars_gs = GridSpecFromSubplotSpec(nrows=total_bar_rows, ncols=cols_per_row, subplot_spec=gs[3, 0], wspace=0.4, hspace=0.6)
-
-    for i, m in enumerate(metrics):
-        r = i // cols_per_row
-        c = i % cols_per_row
-        ax = fig.add_subplot(bars_gs[r, c])
-        info = _metric_rank_info(df, m, player_a)
-        rk, tot, norm = info["rank"], info["total"], info["norm"]
-        label = f"{m} — {rk}/{tot}" if rk is not None else f"{m} — n/a"
-        ax.barh([0], [norm])
-        ax.set_xlim(0, 1)
-        ax.set_yticks([])
-        ax.set_xticks([0, 0.5, 1])
-        ax.set_xticklabels(["0%","50%","100%"], fontsize=7)
-        ax.set_title(label, fontsize=9, pad=2)
-        for spine in ["top","right","left"]:
-            ax.spines[spine].set_visible(False)
-
-    # Footer
-    ax_footer = fig.add_subplot(gs[5, 0])
-    ax_footer.axis("off")
-    if signature_text is None:
-        signature_text = "Prepared by VIF Radar"
-    ax_footer.hlines(0.9, 0.0, 1.0, transform=ax_footer.transAxes, linewidth=0.9, alpha=0.5)
-    ax_footer.text(0.0, 0.2, signature_text, ha="left", va="center", fontsize=9, alpha=0.9)
-    ax_footer.text(1.0, 0.2, "Page 1", ha="right", va="center", fontsize=9, alpha=0.9)
-
-    buf = io.BytesIO()
-    fig.savefig(buf, format="pdf", bbox_inches="tight", pad_inches=0.2)
-    plt.close(fig)
-    buf.seek(0)
-    return buf
-
-
-
-# ---------- Professional A4 PDF Report (guarded) ----------
-try:
-    _ = df_all; _ = p1; _ = p2; _ = metrics_sel; _ = color_a; _ = color_b
-    import streamlit as st
-    hdr_default = "VIF Radar — Player Report"
-    sig_default = "Prepared by VIF Radar"
-    header_text = st.text_input("PDF header (English)", hdr_default)
-    signature_text = st.text_input("PDF footer signature (English)", sig_default)
-    if p1 and metrics_sel:
-        pdf_buf = make_player_report_pdf(df_all, p1, None if p2 == "—" else p2, metrics_sel,
-                                         color_a=color_a, color_b=color_b,
-                                         header_text=header_text, signature_text=signature_text)
-        st.download_button("⬇️ Download Player Report (A4 PDF)", data=pdf_buf.getvalue(),
-                           file_name="player_report_a4.pdf", mime="application/pdf")
-except NameError:
-    pass
