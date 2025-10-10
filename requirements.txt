@@ -1,7 +1,6 @@
 streamlit
-pandas
 numpy
+pandas
 matplotlib
 mplsoccer
 openpyxl
-pillow
