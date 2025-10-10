@@ -198,18 +198,14 @@ def compute_derived_metrics(df: pd.DataFrame) -> pd.DataFrame:
     # npxG & friends
     if "xG" in df and "Penalties taken" in df:
         df["npxG"] = (df["xG"] - (df["Penalties taken"].fillna(0) * 0.81))
-        df["npxG"] = _zscore(df["npxG"])
     if "Goals" in df and "xG" in df:
         df["G-xG"] = _zscore(df["Goals"] - df["xG"])
     if "npxG" in df and "Minutes played" in df:
         with np.errstate(divide="ignore", invalid="ignore"):
             df["npxG per 90"] = df["npxG"] / (df["Minutes played"].replace(0, np.nan) / 90)
-        df["npxG per 90"] = _zscore(df["npxG per 90"])
     if "npxG" in df and "Shots" in df:
         with np.errstate(divide="ignore", invalid="ignore"):
             df["npxG per Shot"] = df["npxG"] / df["Shots"].replace(0, np.nan)
-        df["npxG per Shot"] = _zscore(df["npxG per Shot"])
-
     # Box Threat
     if "npxG per 90" in df and "Touches in box per 90" in df:
         with np.errstate(divide="ignore", invalid="ignore"):
@@ -966,3 +962,19 @@ st.download_button(
     file_name="composite_metrics_base.csv",
     mime="text/csv",
 )
+
+
+def _fix_npxg_block(df):
+    import numpy as np
+    if "xG" in df and "Penalties taken" in df:
+        df["npxG"] = df["xG"].fillna(0) - df["Penalties taken"].fillna(0) * 0.81
+    if "npxG" in df and "Minutes played" in df:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            mp = df["Minutes played"].replace(0, np.nan).astype(float)
+            df["npxG per 90"] = (df["npxG"].astype(float) / mp) * 90.0
+    if "npxG" in df and "Shots" in df:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            df["npxG per Shot"] = df["npxG"].astype(float) / df["Shots"].replace(0, np.nan).astype(float)
+    if "Goals" in df and "xG" in df:
+        df["G-xG"] = df["Goals"].fillna(0) - df["xG"].fillna(0)
+    return df
