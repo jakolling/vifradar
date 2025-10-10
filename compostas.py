@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec
+from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
 from mplsoccer import Radar
 
 # ===================== CONFIG & STYLE =====================
@@ -198,14 +198,18 @@ def compute_derived_metrics(df: pd.DataFrame) -> pd.DataFrame:
     # npxG & friends
     if "xG" in df and "Penalties taken" in df:
         df["npxG"] = (df["xG"] - (df["Penalties taken"].fillna(0) * 0.81))
+        df["npxG"] = _zscore(df["npxG"])
     if "Goals" in df and "xG" in df:
         df["G-xG"] = _zscore(df["Goals"] - df["xG"])
     if "npxG" in df and "Minutes played" in df:
         with np.errstate(divide="ignore", invalid="ignore"):
             df["npxG per 90"] = df["npxG"] / (df["Minutes played"].replace(0, np.nan) / 90)
+        df["npxG per 90"] = _zscore(df["npxG per 90"])
     if "npxG" in df and "Shots" in df:
         with np.errstate(divide="ignore", invalid="ignore"):
             df["npxG per Shot"] = df["npxG"] / df["Shots"].replace(0, np.nan)
+        df["npxG per Shot"] = _zscore(df["npxG per Shot"])
+
     # Box Threat
     if "npxG per 90" in df and "Touches in box per 90" in df:
         with np.errstate(divide="ignore", invalid="ignore"):
@@ -667,6 +671,79 @@ def make_radar_bars_png(df: pd.DataFrame, player_a: str, player_b: str | None, m
     buf.seek(0)
     return buf
 
+
+# ======= Build an A4 PDF (Radar 3/4 + Bars 1/4) =======
+def make_radar_bars_pdf_a4(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
+                           color_a: str, color_b: str = "#E76F51") -> io.BytesIO:
+    metrics = (metrics or [])[:16]
+    lowers, uppers = _bounds_from_df(df, metrics)
+    radar = Radar(metrics, lowers, uppers, num_rings=4)
+
+    row_a = df[df["Player"] == player_a].iloc[0]
+    v_a = _values_for_player(row_a, metrics)
+
+    v_b = None
+    title_a = _player_label(row_a)
+    title = title_a
+    if player_b:
+        row_b = df[df["Player"] == player_b].iloc[0]
+        v_b = _values_for_player(row_b, metrics)
+        title = f"{title_a} vs {_player_label(row_b)}"
+
+    # A4 portrait in inches
+    fig = plt.figure(figsize=(8.27, 11.69), constrained_layout=True)
+    gs_main = GridSpec(nrows=2, ncols=1, height_ratios=[3, 1], figure=fig)
+
+    # ---- Radar area (3/4 of the page) ----
+    ax_radar = fig.add_subplot(gs_main[0, 0])
+    radar.setup_axis(ax=ax_radar)
+    radar.draw_circles(ax=ax_radar, facecolor="#f3f3f3", edgecolor="#c9c9c9", alpha=0.18)
+    try:
+        radar.spoke(ax=ax_radar, color="#c9c9c9", linestyle="--", alpha=0.18)
+    except Exception:
+        pass
+
+    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": color_a+"33", "edgecolor": color_a, "linewidth": 2})
+    if v_b is not None:
+        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": color_b+"33", "edgecolor": color_b, "linewidth": 2})
+    radar.draw_range_labels(ax=ax_radar, fontsize=9)
+    radar.draw_param_labels(ax=ax_radar, fontsize=10)
+    ax_radar.set_title(title, fontsize=14, pad=16)
+
+    # ---- Bars area (1/4 of the page) ----
+    cols_per_row = 3
+    total_bar_rows = (len(metrics) + cols_per_row - 1) // cols_per_row
+    sub_gs = GridSpecFromSubplotSpec(nrows=total_bar_rows, ncols=cols_per_row, subplot_spec=gs_main[1, 0])
+
+    def _draw_bar(ax, m, player_name):
+        info = _metric_rank_info(df, m, player_name)
+        rk, tot, norm = info["rank"], info["total"], info["norm"]
+        label = f"{m} — {rk}/{tot}" if rk is not None else f"{m} — n/a"
+        ax.barh([0], [norm])
+        ax.set_xlim(0, 1)
+        ax.set_yticks([])
+        ax.set_xticks([0, 0.5, 1])
+        ax.set_xticklabels(["0%","50%","100%"], fontsize=7)
+        ax.set_title(label, fontsize=9, pad=2)
+        for spine in ["top","right","left"]:
+            ax.spines[spine].set_visible(False)
+
+    # Draw bars for player A (and overwrite with player B values if present side-by-side not requested)
+    # Here we'll plot player A only to keep bars legible in a limited height area.
+    for i, m in enumerate(metrics):
+        r = i // cols_per_row
+        c = i % cols_per_row
+        ax = fig.add_subplot(sub_gs[r, c])
+        _draw_bar(ax, m, player_a)
+
+    # Save into an in-memory PDF
+    buf = io.BytesIO()
+    fig.savefig(buf, format="pdf", bbox_inches="tight", pad_inches=0.2)
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
+
 # ===================== SIDEBAR — Controls =====================
 st.sidebar.header("⚙️ Settings")
 up = st.sidebar.file_uploader("Upload merged Excel (WyScout + SkillCorner)", type=["xlsx"])
@@ -947,7 +1024,14 @@ with colA:
     # Download button for combined PNG
     if p1 and metrics_sel:
         png_buf = make_radar_bars_png(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b)
-        st.download_button("⬇️ Download Radar + Barras (PNG)", data=png_buf.getvalue(), file_name="radar_barras.png", mime="image/png")
+        st.download_button("⬇️ Download Radar + Barras (PNG)", data=png_buf.getvalue()
+
+# Download button for A4 PDF
+if p1 and metrics_sel:
+    pdf_buf = make_radar_bars_pdf_a4(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b)
+    st.download_button("⬇️ Download Radar + Barras (PDF A4)", data=pdf_buf.getvalue(),
+                       file_name="radar_barras_A4.pdf", mime="application/pdf")
+, file_name="radar_barras.png", mime="image/png")
 
 with colB:
     if p1 and metrics_sel:
@@ -962,19 +1046,3 @@ st.download_button(
     file_name="composite_metrics_base.csv",
     mime="text/csv",
 )
-
-
-def _fix_npxg_block(df):
-    import numpy as np
-    if "xG" in df and "Penalties taken" in df:
-        df["npxG"] = df["xG"].fillna(0) - df["Penalties taken"].fillna(0) * 0.81
-    if "npxG" in df and "Minutes played" in df:
-        with np.errstate(divide="ignore", invalid="ignore"):
-            mp = df["Minutes played"].replace(0, np.nan).astype(float)
-            df["npxG per 90"] = (df["npxG"].astype(float) / mp) * 90.0
-    if "npxG" in df and "Shots" in df:
-        with np.errstate(divide="ignore", invalid="ignore"):
-            df["npxG per Shot"] = df["npxG"].astype(float) / df["Shots"].replace(0, np.nan).astype(float)
-    if "Goals" in df and "xG" in df:
-        df["G-xG"] = df["Goals"].fillna(0) - df["xG"].fillna(0)
-    return df
