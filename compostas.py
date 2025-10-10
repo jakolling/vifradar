@@ -548,6 +548,25 @@ def _values_for_player(row: pd.Series, metrics: list[str]):
         vals.append(float(v) if pd.notna(v) else np.nan)
     return vals
 
+def _values_percent(df: pd.DataFrame, row: pd.Series, metrics: list[str]):
+    """
+    Converte os valores crus do jogador para uma escala comum 0–100,
+    usando os limites (5º–95º percentil) globais calculados por `_bounds_from_df`.
+    Também aplica inversão nas métricas listadas em `NEGATE_METRICS`.
+    """
+    lowers, uppers = _bounds_from_df(df, metrics)
+    lowers = np.array(lowers, dtype=float)
+    uppers = np.array(uppers, dtype=float)
+    span = np.where(uppers == lowers, 1e-6, uppers - lowers)
+
+    raw = np.array(_values_for_player(row, metrics), dtype=float)
+    # já invertido dentro de _values_for_player; aqui só garantimos dtype e NaNs
+    pct = ((raw - lowers) / span) * 100.0
+    # Clip para manter dentro da escala
+    pct = np.clip(pct, 0, 100)
+    return pct.tolist()
+
+
 def _player_label(row: pd.Series) -> str:
     name = str(row.get("Player", ""))
     team = str(row.get("Team", "")) if "Team" in row.index and pd.notna(row.get("Team")) else ""
@@ -565,37 +584,52 @@ def _player_label(row: pd.Series) -> str:
     if minutes is not None: tail += f" | {minutes} min"
     return name + tail
 
+
 def plot_radar(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
                color_a: str, color_b: str = "#E76F51"):
     if not metrics:
         st.warning("Select at least 3 metrics for the radar.")
         return
     metrics = metrics[:16]
+
     row_a = df[df["Player"] == player_a].iloc[0]
     row_b = df[df["Player"] == player_b].iloc[0] if player_b else None
-    lowers, uppers = _bounds_from_df(df, metrics)
+
+    # valores na escala 0–100 e radar com limites fixos
+    v_a = _values_percent(df, row_a, metrics)
+    v_b = _values_percent(df, row_b, metrics) if row_b is not None else None
+
+    lowers = [0.0] * len(metrics)
+    uppers = [100.0] * len(metrics)
     radar = Radar(metrics, lowers, uppers, num_rings=4)
 
-    v_a = _values_for_player(row_a, metrics)
-    v_b = _values_for_player(row_b, metrics) if row_b is not None else None
-
-    fig, ax = plt.subplots(figsize=(8, 8))
+    fig, ax = plt.subplots(figsize=(9.5, 9.5), dpi=180)
     radar.setup_axis(ax=ax)
-    radar.draw_circles(ax=ax, facecolor="#f3f3f3", edgecolor="#c9c9c9", alpha=0.18)
+    radar.draw_circles(ax=ax, facecolor="#f5f5f5", edgecolor="#bdbdbd", alpha=0.6, zorder=1)
     try:
-        radar.spoke(ax=ax, color="#c9c9c9", linestyle="--", alpha=0.18)
+        radar.spoke(ax=ax, color="#bdbdbd", linestyle="--", alpha=0.6)
     except Exception:
         pass
-    radar.draw_radar(v_a, ax=ax, kwargs_radar={"facecolor": color_a+"33", "edgecolor": color_a, "linewidth": 2})
+
+    # polígonos com contorno forte e pouco preenchimento
+    radar.draw_radar(v_a, ax=ax, kwargs_radar={"facecolor": (color_a + "26") if isinstance(color_a, str) else None,
+                                               "edgecolor": color_a, "linewidth": 2.8, "zorder": 3})
     if v_b is not None:
-        radar.draw_radar(v_b, ax=ax, kwargs_radar={"facecolor": color_b+"33", "edgecolor": color_b, "linewidth": 2})
+        radar.draw_radar(v_b, ax=ax, kwargs_radar={"facecolor": (color_b + "26") if isinstance(color_b, str) else None,
+                                                   "edgecolor": color_b, "linewidth": 2.8, "zorder": 3})
+
+    # marcadores nos vértices para destacar interseções
+    thetas = np.linspace(0, 2*np.pi, len(metrics), endpoint=False)
+    ax.scatter(thetas, v_a, s=18, edgecolors=color_a, facecolors="white", linewidths=1.5, zorder=4)
+    if v_b is not None:
+        ax.scatter(thetas, v_b, s=18, edgecolors=color_b, facecolors="white", linewidths=1.5, zorder=4)
+
     radar.draw_range_labels(ax=ax, fontsize=9)
     radar.draw_param_labels(ax=ax, fontsize=10)
 
     title_a = _player_label(row_a)
     title = title_a if row_b is None else f"{title_a} vs {_player_label(row_b)}"
-    ax.set_title(title, fontsize=14, pad=20)
-
+    ax.set_title(title, fontsize=16, pad=18)
     st.pyplot(fig, use_container_width=True)
 
 # ===================== Ranking bars helpers =====================
@@ -664,74 +698,56 @@ def render_metric_rank_bars(dfin: pd.DataFrame, player_a: str, metrics: list[str
         _render_for(player_b, "Jogador B")
 
 # ======= Build a single PNG that includes Radar + Ranking Bars =======
+
 def make_radar_bars_png(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
                         color_a: str, color_b: str = "#E76F51") -> io.BytesIO:
     metrics = (metrics or [])[:16]
 
-    lowers, uppers = _bounds_from_df(df, metrics)
+    lowers = [0.0] * len(metrics)
+    uppers = [100.0] * len(metrics)
     radar = Radar(metrics, lowers, uppers, num_rings=4)
 
     row_a = df[df["Player"] == player_a].iloc[0]
-    v_a = _values_for_player(row_a, metrics)
+    v_a = _values_percent(df, row_a, metrics)
 
     row_b = None
     v_b = None
     if player_b:
         row_b = df[df["Player"] == player_b].iloc[0]
-        v_b = _values_for_player(row_b, metrics)
+        v_b = _values_percent(df, row_b, metrics)
 
-    cols_per_row = 3
-    rows_per_player = max(1, math.ceil(len(metrics) / cols_per_row))
-    bar_blocks = 1 + (1 if player_b else 0)
-    total_bar_rows = rows_per_player * bar_blocks
+    # A4 portrait in inches
+    fig = plt.figure(figsize=(8.27, 11.69), constrained_layout=True)
+    gs_main = GridSpec(nrows=2, ncols=1, height_ratios=[1.1, 1.4], figure=fig)
 
-    fig = plt.figure(figsize=(11, 8 + total_bar_rows * 0.9))
-    gs = GridSpec(nrows=2 + total_bar_rows, ncols=3, figure=fig)
-
-    # Radar spans first 2 rows
-    ax_radar = fig.add_subplot(gs[0:2, :])
+    # Radar on top
+    ax_radar = fig.add_subplot(gs_main[0, 0], projection="polar")
     radar.setup_axis(ax=ax_radar)
-    radar.draw_circles(ax=ax_radar, facecolor="#f3f3f3", edgecolor="#c9c9c9", alpha=0.18)
+    radar.draw_circles(ax=ax_radar, facecolor="#f5f5f5", edgecolor="#bdbdbd", alpha=0.6)
     try:
-        radar.spoke(ax=ax_radar, color="#c9c9c9", linestyle="--", alpha=0.18)
+        radar.spoke(ax=ax_radar, color="#bdbdbd", linestyle="--", alpha=0.6)
     except Exception:
         pass
-    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": color_a+"33", "edgecolor": color_a, "linewidth": 2})
+    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": (color_a + "26") if isinstance(color_a, str) else None,
+                                                     "edgecolor": color_a, "linewidth": 2.8})
     if v_b is not None:
-        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": color_b+"33", "edgecolor": color_b, "linewidth": 2})
+        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": (color_b + "26") if isinstance(color_b, str) else None,
+                                                         "edgecolor": color_b, "linewidth": 2.8})
+    thetas = np.linspace(0, 2*np.pi, len(metrics), endpoint=False)
+    ax_radar.scatter(thetas, v_a, s=18, edgecolors=color_a, facecolors="white", linewidths=1.5)
+    if v_b is not None:
+        ax_radar.scatter(thetas, v_b, s=18, edgecolors=color_b, facecolors="white", linewidths=1.5)
     radar.draw_range_labels(ax=ax_radar, fontsize=9)
     radar.draw_param_labels(ax=ax_radar, fontsize=10)
 
     title_a = _player_label(row_a)
-    title = title_a if row_b is None else f"{title_a} vs {_player_label(row_b)}"
-    ax_radar.set_title(title, fontsize=20, weight="bold", pad=18)
-
-    # Bar blocks (player A then optional player B)
-    def _draw_bar_block(start_row: int, player_name: str):
-        for i, m in enumerate(metrics):
-            r = start_row + (i // cols_per_row)
-            c = i % cols_per_row
-            ax = fig.add_subplot(gs[2 + r, c])
-            info = _metric_rank_info(df, m, player_name)
-            rk, tot, norm = info["rank"], info["total"], info["norm"]
-            label = f"{m} — {rk}/{tot}" if rk is not None else f"{m} — n/a"
-            ax.barh([0], [norm])
-            ax.set_xlim(0, 1)
-            ax.set_yticks([])
-            ax.set_xticks([0, 0.5, 1])
-            ax.set_xticklabels(["0%","50%","100%"], fontsize=7)
-            ax.set_title(label, fontsize=9, pad=2)
-            for spine in ["top","right","left"]:
-                ax.spines[spine].set_visible(False)
-
-    _draw_bar_block(start_row=0, player_name=player_a)
+    title = title_a
     if player_b:
-        _draw_bar_block(start_row=rows_per_player, player_name=player_b)
+        title = f"{title_a} vs {_player_label(row_b)}"
+    ax_radar.set_title(title, fontsize=14, pad=12)
 
     buf = io.BytesIO()
-    fig.tight_layout()
-    fig.savefig(buf, format="png", dpi=220, bbox_inches="tight")
-    plt.close(fig)
+    fig.savefig(buf, format="png", dpi=300, bbox_inches="tight")
     buf.seek(0)
     return buf
 
