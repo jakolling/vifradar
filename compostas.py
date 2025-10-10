@@ -9,6 +9,26 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
 from mplsoccer import Radar
 
+
+def _fix_npxg_block(df):
+    import numpy as np
+    if "xG" in df.columns and "Penalties taken" in df.columns:
+        df["npxG"] = df["xG"].fillna(0) - df["Penalties taken"].fillna(0) * 0.81
+    # per 90
+    if "npxG" in df.columns and "Minutes played" in df.columns:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            mp = df["Minutes played"].replace(0, np.nan).astype(float)
+            df["npxG per 90"] = (df["npxG"].astype(float) / mp) * 90.0
+    # per shot
+    if "npxG" in df.columns and "Shots" in df.columns:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            df["npxG per Shot"] = df["npxG"].astype(float) / df["Shots"].replace(0, np.nan).astype(float)
+    # G-xG
+    if "Goals" in df.columns and "xG" in df.columns:
+        df["G-xG"] = df["Goals"].fillna(0) - df["xG"].fillna(0)
+    return df
+
+
 # ===================== CONFIG & STYLE =====================
 st.set_page_config(
     page_title="Composite Metrics & Radar",
@@ -198,18 +218,14 @@ def compute_derived_metrics(df: pd.DataFrame) -> pd.DataFrame:
     # npxG & friends
     if "xG" in df and "Penalties taken" in df:
         df["npxG"] = (df["xG"] - (df["Penalties taken"].fillna(0) * 0.81))
-        df["npxG"] = _zscore(df["npxG"])
     if "Goals" in df and "xG" in df:
         df["G-xG"] = _zscore(df["Goals"] - df["xG"])
     if "npxG" in df and "Minutes played" in df:
         with np.errstate(divide="ignore", invalid="ignore"):
             df["npxG per 90"] = df["npxG"] / (df["Minutes played"].replace(0, np.nan) / 90)
-        df["npxG per 90"] = _zscore(df["npxG per 90"])
     if "npxG" in df and "Shots" in df:
         with np.errstate(divide="ignore", invalid="ignore"):
             df["npxG per Shot"] = df["npxG"] / df["Shots"].replace(0, np.nan)
-        df["npxG per Shot"] = _zscore(df["npxG per Shot"])
-
     # Box Threat
     if "npxG per 90" in df and "Touches in box per 90" in df:
         with np.errstate(divide="ignore", invalid="ignore"):
@@ -923,6 +939,8 @@ if "Minutes played" not in df.columns:
 
 # Keep global (df_all) for all calculations; df_view only controls Rankings listing
 df_all = df.copy()
+df_all = _fix_npxg_block(df_all)
+
 df_view = df_all[df_all["Minutes played"].fillna(0) >= int(min_minutes)].copy()
 st.caption(
     f"Filtro de minutos afeta apenas os **Rankings** (mostra {df_view.shape[0]} de {df_all.shape[0]} jogadores). "
