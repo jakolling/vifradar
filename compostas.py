@@ -566,6 +566,11 @@ def _values_percent(df: pd.DataFrame, row: pd.Series, metrics: list[str]):
     pct = np.clip(pct, 0, 100)
     return pct.tolist()
 
+def _sanitize_vals(vals, fill=50.0):
+    arr = np.array(vals, dtype=float)
+    arr[~np.isfinite(arr)] = fill
+    return arr.tolist()
+
 
 def _player_label(row: pd.Series) -> str:
     name = str(row.get("Player", ""))
@@ -596,8 +601,8 @@ def plot_radar(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: l
     row_b = df[df["Player"] == player_b].iloc[0] if player_b else None
 
     # valores na escala 0–100 e radar com limites fixos
-    v_a = _values_percent(df, row_a, metrics)
-    v_b = _values_percent(df, row_b, metrics) if row_b is not None else None
+    v_a = _sanitize_vals(_values_percent(df, row_a, metrics))
+    v_b = _sanitize_vals(_values_percent(df, row_b, metrics)) if row_b is not None else None
 
     lowers = [0.0] * len(metrics)
     uppers = [100.0] * len(metrics)
@@ -706,13 +711,13 @@ def make_radar_bars_png(df: pd.DataFrame, player_a: str, player_b: str | None, m
     radar = Radar(metrics, lowers, uppers, num_rings=4)
 
     row_a = df[df["Player"] == player_a].iloc[0]
-    v_a = _values_percent(df, row_a, metrics)
+    v_a = _sanitize_vals(_values_percent(df, row_a, metrics))
 
     row_b = None
     v_b = None
     if player_b:
         row_b = df[df["Player"] == player_b].iloc[0]
-        v_b = _values_percent(df, row_b, metrics)
+        v_b = _sanitize_vals(_values_percent(df, row_b, metrics))
 
     # A4 portrait in inches
     fig = plt.figure(figsize=(8.27, 11.69), constrained_layout=True)
