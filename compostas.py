@@ -612,10 +612,10 @@ def plot_radar(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: l
         pass
 
     # polígonos com contorno forte e pouco preenchimento
-    radar.draw_radar(v_a, ax=ax, kwargs_radar={"facecolor": (color_a + "26") if isinstance(color_a, str) else None,
+    radar.draw_radar(v_a, ax=ax, kwargs_radar={"facecolor": color_a, "alpha": 0.18, str) else None,
                                                "edgecolor": color_a, "linewidth": 2.8, "zorder": 3})
     if v_b is not None:
-        radar.draw_radar(v_b, ax=ax, kwargs_radar={"facecolor": (color_b + "26") if isinstance(color_b, str) else None,
+        radar.draw_radar(v_b, ax=ax, kwargs_radar={"facecolor": color_b, "alpha": 0.18, str) else None,
                                                    "edgecolor": color_b, "linewidth": 2.8, "zorder": 3})
 
     # marcadores nos vértices para destacar interseções
@@ -728,10 +728,10 @@ def make_radar_bars_png(df: pd.DataFrame, player_a: str, player_b: str | None, m
         radar.spoke(ax=ax_radar, color="#bdbdbd", linestyle="--", alpha=0.6)
     except Exception:
         pass
-    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": (color_a + "26") if isinstance(color_a, str) else None,
+    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": color_a, "alpha": 0.18, str) else None,
                                                      "edgecolor": color_a, "linewidth": 2.8})
     if v_b is not None:
-        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": (color_b + "26") if isinstance(color_b, str) else None,
+        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": color_b, "alpha": 0.18, str) else None,
                                                          "edgecolor": color_b, "linewidth": 2.8})
     thetas = np.linspace(0, 2*np.pi, len(metrics), endpoint=False)
     ax_radar.scatter(thetas, v_a, s=18, edgecolors=color_a, facecolors="white", linewidths=1.5)
