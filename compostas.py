@@ -612,11 +612,9 @@ def plot_radar(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: l
         pass
 
     # polígonos com contorno forte e pouco preenchimento
-    radar.draw_radar(v_a, ax=ax, kwargs_radar={"facecolor": color_a, "alpha": 0.18, str) else None,
-                                               "edgecolor": color_a, "linewidth": 2.8, "zorder": 3})
+    radar.draw_radar(v_a, ax=ax, kwargs_radar={"facecolor": color_a, "edgecolor": color_a, "linewidth": 2.8, "zorder": 3, "alpha": 0.18})
     if v_b is not None:
-        radar.draw_radar(v_b, ax=ax, kwargs_radar={"facecolor": color_b, "alpha": 0.18, str) else None,
-                                                   "edgecolor": color_b, "linewidth": 2.8, "zorder": 3})
+        radar.draw_radar(v_b, ax=ax, kwargs_radar={"facecolor": color_b, "edgecolor": color_b, "linewidth": 2.8, "zorder": 3, "alpha": 0.18})
 
     # marcadores nos vértices para destacar interseções
     thetas = np.linspace(0, 2*np.pi, len(metrics), endpoint=False)
@@ -728,11 +726,9 @@ def make_radar_bars_png(df: pd.DataFrame, player_a: str, player_b: str | None, m
         radar.spoke(ax=ax_radar, color="#bdbdbd", linestyle="--", alpha=0.6)
     except Exception:
         pass
-    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": color_a, "alpha": 0.18, str) else None,
-                                                     "edgecolor": color_a, "linewidth": 2.8})
+    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": color_a, "edgecolor": color_a, "linewidth": 2.8, "alpha": 0.18})
     if v_b is not None:
-        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": color_b, "alpha": 0.18, str) else None,
-                                                         "edgecolor": color_b, "linewidth": 2.8})
+        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": color_b, "edgecolor": color_b, "linewidth": 2.8, "alpha": 0.18})
     thetas = np.linspace(0, 2*np.pi, len(metrics), endpoint=False)
     ax_radar.scatter(thetas, v_a, s=18, edgecolors=color_a, facecolors="white", linewidths=1.5)
     if v_b is not None:
@@ -791,9 +787,9 @@ def make_radar_bars_pdf_a4(df: pd.DataFrame, player_a: str, player_b: str | None
     except Exception:
         pass
 
-    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": color_a+"33", "edgecolor": color_a, "linewidth": 2})
+    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": color_a, "edgecolor": color_a, "linewidth": 2.8, "alpha": 0.18})
     if v_b is not None:
-        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": color_b+"33", "edgecolor": color_b, "linewidth": 2})
+        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": color_b, "edgecolor": color_b, "linewidth": 2.8, "alpha": 0.18})
     radar.draw_range_labels(ax=ax_radar, fontsize=9)
     radar.draw_param_labels(ax=ax_radar, fontsize=10)
     ax_radar.set_title(title, fontsize=20, weight="bold", pad=18)
