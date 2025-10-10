@@ -10,6 +10,48 @@ from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
 from mplsoccer import Radar
 
 
+from datetime import datetime, date
+
+def _player_age(row):
+    # Try common age fields
+    for key in ["Age", "age"]:
+        if key in row and row[key] is not None:
+            try:
+                val = int(float(row[key]))
+                if val > 0:
+                    return val
+            except Exception:
+                pass
+    # Try DOB parsing (YYYY-MM-DD or DD/MM/YYYY etc.)
+    for key in ["DOB", "Date of Birth", "Birthdate", "Birth Date"]:
+        if key in row and isinstance(row[key], str) and row[key].strip():
+            txt = row[key].strip()
+            # try multiple formats
+            fmts = ["%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%m/%d/%Y", "%Y/%m/%d"]
+            for fmt in fmts:
+                try:
+                    dob = datetime.strptime(txt, fmt).date()
+                    today = date.today()
+                    age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+                    if age > 0:
+                        return age
+                except Exception:
+                    continue
+    # Try Birth Year
+    for key in ["Birth Year", "Birth year", "YOB", "Year of Birth"]:
+        if key in row and row[key] is not None:
+            try:
+                year = int(float(row[key]))
+                today = date.today()
+                age = today.year - year
+                if 10 < age < 60:
+                    return age
+            except Exception:
+                pass
+    return None
+
+
+
 def _fix_npxg_block(df):
     import numpy as np
     if "xG" in df.columns and "Penalties taken" in df.columns:
@@ -656,7 +698,7 @@ def make_radar_bars_png(df: pd.DataFrame, player_a: str, player_b: str | None, m
 
     title_a = _player_label(row_a)
     title = title_a if row_b is None else f"{title_a} vs {_player_label(row_b)}"
-    ax_radar.set_title(title, fontsize=14, pad=16)
+    ax_radar.set_title(title, fontsize=20, weight="bold", pad=18)
 
     # Bar blocks (player A then optional player B)
     def _draw_bar_block(start_row: int, player_name: str):
@@ -701,14 +743,22 @@ def make_radar_bars_pdf_a4(df: pd.DataFrame, player_a: str, player_b: str | None
     v_b = None
     title_a = _player_label(row_a)
     title = title_a
+    age_a = _player_age(row_a)
+    if age_a is not None:
+        title_a = f"{title_a} ({age_a})"
+    title = title_a
     if player_b:
         row_b = df[df["Player"] == player_b].iloc[0]
         v_b = _values_for_player(row_b, metrics)
-        title = f"{title_a} vs {_player_label(row_b)}"
+        title_b = _player_label(row_b)
+        age_b = _player_age(row_b)
+        if age_b is not None:
+            title_b = f"{title_b} ({age_b})"
+        title = f"{title_a} vs {title_b}"
 
     # A4 portrait in inches
     fig = plt.figure(figsize=(8.27, 11.69), constrained_layout=True)
-    gs_main = GridSpec(nrows=2, ncols=1, height_ratios=[3, 1], figure=fig)
+    gs_main = GridSpec(nrows=2, ncols=1, height_ratios=[2.6, 1], figure=fig)
 
     # ---- Radar area (3/4 of the page) ----
     ax_radar = fig.add_subplot(gs_main[0, 0])
@@ -724,7 +774,7 @@ def make_radar_bars_pdf_a4(df: pd.DataFrame, player_a: str, player_b: str | None
         radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": color_b+"33", "edgecolor": color_b, "linewidth": 2})
     radar.draw_range_labels(ax=ax_radar, fontsize=9)
     radar.draw_param_labels(ax=ax_radar, fontsize=10)
-    ax_radar.set_title(title, fontsize=14, pad=16)
+    ax_radar.set_title(title, fontsize=20, weight="bold", pad=18)
 
     # ---- Bars area (1/4 of the page) ----
     cols_per_row = 3
