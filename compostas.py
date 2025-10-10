@@ -600,7 +600,7 @@ def plot_radar(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: l
 
 # ===================== Ranking bars helpers =====================
 def _metric_rank_info(dfin: pd.DataFrame, metric: str, player_name: str):
-    # Use percentile-based normalization for the bar (0-1 where 1 = melhor)
+    # Barra baseada em ranking: 1 = melhor => barra cheia (norm = 1.0)
     s = pd.to_numeric(dfin[metric], errors="coerce")
     mask = s.notna()
     s = s[mask]
@@ -608,24 +608,29 @@ def _metric_rank_info(dfin: pd.DataFrame, metric: str, player_name: str):
     total = int(s.shape[0]) if s.shape[0] > 0 else 0
     if total == 0:
         return {"rank": None, "total": 0, "value": np.nan, "norm": 0.0, "ascending": False}
-    ascending = metric in NEGATE_METRICS  # if True, menor = melhor
-    # Rank position (1 = melhor) for the label
+    ascending = metric in NEGATE_METRICS  # se True, menor é melhor
+
+    # Rank ordinal (1 = melhor considerando ascending)
     r = s.rank(ascending=ascending, method="min")
-    # Percentile for the bar (0-1)
-    r_pct = s.rank(ascending=ascending, pct=True, method="average")
     try:
         player_idx = d.index[d["Player"] == player_name]
         if player_idx.empty:
             return {"rank": None, "total": total, "value": np.nan, "norm": 0.0, "ascending": ascending}
         val = float(s.loc[player_idx[0]]) if player_idx[0] in s.index else np.nan
         rk = int(r.loc[player_idx[0]]) if player_idx[0] in r.index and not np.isnan(r.loc[player_idx[0]]) else None
-        norm = float(r_pct.loc[player_idx[0]]) if player_idx[0] in r_pct.index else 0.0
     except Exception:
-        val, rk, norm = np.nan, None, 0.0
-    # Safety clamp
+        val, rk = np.nan, None
+
+    # Converte rank -> [0,1]: 1.0 para rank 1; 0.0 para rank = total
+    if rk is None:
+        norm = 0.0
+    elif total <= 1:
+        norm = 1.0
+    else:
+        norm = 1.0 - (float(rk - 1) / float(total - 1))
+
     norm = float(np.clip(norm, 0.0, 1.0))
     return {"rank": rk, "total": total, "value": val, "norm": norm, "ascending": ascending}
-
 def render_metric_rank_bars(dfin: pd.DataFrame, player_a: str, metrics: list[str], player_b: str | None = None):
     if not metrics:
         return
