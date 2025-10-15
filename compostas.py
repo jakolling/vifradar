@@ -897,168 +897,83 @@ These are normalized **[0–100]** composites built from z-scores of component s
     st.stop()
 
 # ===================== MAIN =====================
-if page == "Dashboard":
-    st.title("⚽ Composite Metrics & Radar")
-
-    st.caption("Integrated with composite metrics + physical/technical composites")
-
-
-
-    df = None
-
-    if demo_mode:
-
-        st.warning("Demo mode is ON — synthetic sample loaded.")
-
-        df_demo = pd.DataFrame({
-
-            "Player": ["Player A","Player B","Player C"],
-
-            "Team": ["X","Y","Z"],
-
-            "Position": ["CF","RW","DMF"],
-
-            "Minutes played": [900, 880, 910],
-
-            "Successful attacking actions per 90":[5,7,2],
-
-            "xG per 90":[0.3,0.2,0.1],
-
-            "xA per 90":[0.2,0.4,0.05],
-
-            "Key passes per 90":[1.2,1.5,0.6],
-
-            "Deep completions per 90":[1.0,0.8,0.4],
-
-            "Deep completed crosses per 90":[0.2,0.5,0.0],
-
-            "Progressive runs per 90":[1.1,1.6,0.3],
-
-            "Passes to penalty area per 90":[0.6,0.9,0.2],
-
-            "Smart passes per 90":[0.4,0.5,0.2],
-
-            "Crosses to goalie box per 90":[0.1,0.3,0.0],
-
-            "Touches in box per 90":[3.5,4.0,1.2],
-
-            "xG":[6.0, 4.8, 1.2],
-
-            "Goals":[5,4,1],
-
-            "Penalties taken":[1,0,0],
-
-            "Shots":[20,18,9],
-
-            "Shot assists per 90":[0.5,0.8,0.2],
-
-            "Second assists per 90":[0.1,0.2,0.0],
-
-            "Accurate passes %":[82,78,90],
-
-            "Through passes per 90":[0.3,0.6,0.1],
-
-            "Accurate smart passes, %":[55,52,60],
-
-            "Accurate through passes, %":[42,38,50],
-
-            "Accurate passes to penalty area, %":[40,44,35],
-
-            "Progressive passes per 90":[3.0,3.8,1.2],
-
-            "Accurate progressive passes, %":[68,62,70],
-
-            "Dribbles per 90":[2.0,3.5,0.8],
-
-            "Successful dribbles, %":[55,48,52],
-
-            "Accelerations per 90":[1.2,1.8,0.6],
-
-            "Successful defensive actions per 90":[4.0,2.0,6.0],
-
-            "Defensive duels per 90":[5.0,3.0,8.0],
-
-            "Defensive duels won, %":[60,55,68],
-
-            "Aerial duels per 90":[2.0,1.0,3.0],
-
-            "Aerial duels won, %":[50,45,62],
-
-            "PAdj Sliding tackles":[0.3,0.1,0.7],
-
-            "PAdj Interceptions":[0.8,0.4,1.2],
-
-            "Shots blocked per 90":[0.2,0.1,0.5],
-
-            "Passes per 90":[35,42,55],
-
-            "Received passes per 90":[12,14,10],
-
-            "Touches per 90":[50,48,62],
-
-            "Passes to final third per 90":[2.2,1.9,1.5],
-
-            "Accurate passes to final third, %":[70,64,72],
-
-            "Forward passes per 90":[12,14,10],
-
-            "Accurate forward passes, %":[78,75,82],
-
-            "Long passes per 90":[3.0,2.0,5.0],
-
-            "Accurate long passes, %":[55,48,62],
-
-            "Lateral passes per 90":[7.0,8.0,6.0],
-
-            "Accurate lateral passes, %":[90,88,92],
-
-            "Back passes per 90":[4.0,6.0,5.0],
-
-            "Accurate back passes, %":[94,96,95],
-
-            "Head goals per 90":[0.05,0.02,0.03],
-
-            "Goal conversion, %":[18,15,8],
-
-            "Shots on target, %":[45,42,38],
-
-            "Fouls per 90":[1.5,1.8,2.2],
-
-            "Yellow cards per 90":[0.2,0.15,0.25],
-
-            "Red cards per 90":[0.01,0.0,0.02],
-
-            "Distance P90":[10000,9800,10500],
-
-            "Running Distance P90":[8000,7800,8200],
-
-            "HI Distance P90":[1500,1300,1100],
-
-            "HSR Distance P90":[600,550,500],
-
-            "Sprint Distance P90":[250,220,200],
-
-            "HSR Count P90":[40,35,30],
-
-            "Sprint Count P90":[15,12,10],
-
-            "Explosive Acceleration to HSR Count P90":[3,2,2],
-
-            "Explosive Acceleration to Sprint Count P90":[1,1,1],
-
-        })
-
-        df = compute_composite_metrics(df_demo, DEFAULT_OFF_WEIGHTS)
+st.title("⚽ Composite Metrics & Radar")
+st.caption("Integrated with composite metrics + physical/technical composites")
+
+df = None
+if demo_mode:
+    st.warning("Demo mode is ON — synthetic sample loaded.")
+    df_demo = pd.DataFrame({
+        "Player": ["Player A","Player B","Player C"],
+        "Team": ["X","Y","Z"],
+        "Position": ["CF","RW","DMF"],
+        "Minutes played": [900, 880, 910],
+        "Successful attacking actions per 90":[5,7,2],
+        "xG per 90":[0.3,0.2,0.1],
+        "xA per 90":[0.2,0.4,0.05],
+        "Key passes per 90":[1.2,1.5,0.6],
+        "Deep completions per 90":[1.0,0.8,0.4],
+        "Deep completed crosses per 90":[0.2,0.5,0.0],
+        "Progressive runs per 90":[1.1,1.6,0.3],
+        "Passes to penalty area per 90":[0.6,0.9,0.2],
+        "Smart passes per 90":[0.4,0.5,0.2],
+        "Crosses to goalie box per 90":[0.1,0.3,0.0],
+        "Touches in box per 90":[3.5,4.0,1.2],
+        "xG":[6.0, 4.8, 1.2],
+        "Goals":[5,4,1],
+        "Penalties taken":[1,0,0],
+        "Shots":[20,18,9],
+        "Shot assists per 90":[0.5,0.8,0.2],
+        "Second assists per 90":[0.1,0.2,0.0],
+        "Accurate passes %":[82,78,90],
+        "Through passes per 90":[0.3,0.6,0.1],
+        "Accurate smart passes, %":[55,52,60],
+        "Accurate through passes, %":[42,38,50],
+        "Accurate passes to penalty area, %":[40,44,35],
+        "Progressive passes per 90":[3.0,3.8,1.2],
+        "Accurate progressive passes, %":[68,62,70],
+        "Dribbles per 90":[2.0,3.5,0.8],
+        "Successful dribbles, %":[55,48,52],
+        "Accelerations per 90":[1.2,1.8,0.6],
+        "Successful defensive actions per 90":[4.0,2.0,6.0],
+        "Defensive duels per 90":[5.0,3.0,8.0],
+        "Defensive duels won, %":[60,55,68],
+        "Aerial duels per 90":[2.0,1.0,3.0],
+        "Aerial duels won, %":[50,45,62],
+        "PAdj Sliding tackles":[0.3,0.1,0.7],
+        "PAdj Interceptions":[0.8,0.4,1.2],
+        "Shots blocked per 90":[0.2,0.1,0.5],
+        "Passes per 90":[35,42,55],
+        "Received passes per 90":[12,14,10],
+        "Touches per 90":[50,48,62],
+        "Passes to final third per 90":[2.2,1.9,1.5],
+        "Accurate passes to final third, %":[70,64,72],
+        "Forward passes per 90":[12,14,10],
+        "Accurate forward passes, %":[78,75,82],
+        "Long passes per 90":[3.0,2.0,5.0],
+        "Accurate long passes, %":[55,48,62],
+        "Lateral passes per 90":[7.0,8.0,6.0],
+        "Accurate lateral passes, %":[90,88,92],
+        "Back passes per 90":[4.0,6.0,5.0],
+        "Accurate back passes, %":[94,96,95],
+        "Head goals per 90":[0.05,0.02,0.03],
+        "Goal conversion, %":[18,15,8],
+        "Shots on target, %":[45,42,38],
+        "Fouls per 90":[1.5,1.8,2.2],
+        "Yellow cards per 90":[0.2,0.15,0.25],
+        "Red cards per 90":[0.01,0.0,0.02],
+        "Distance P90":[10000,9800,10500],
+        "Running Distance P90":[8000,7800,8200],
+        "HI Distance P90":[1500,1300,1100],
+        "HSR Distance P90":[600,550,500],
+        "Sprint Distance P90":[250,220,200],
+        "HSR Count P90":[40,35,30],
+        "Sprint Count P90":[15,12,10],
+        "Explosive Acceleration to HSR Count P90":[3,2,2],
+        "Explosive Acceleration to Sprint Count P90":[1,1,1],
+    })
+    df = compute_composite_metrics(df_demo, DEFAULT_OFF_WEIGHTS)
 elif page == "Ferramenta de Busca":
-    # --- Garantia: só continue se df_all existir e estiver pronto ---
-    try:
-        _df_all_ready = hasattr(df_all, "columns") and len(df_all.columns) > 0
-    except NameError:
-        _df_all_ready = False
-    if not _df_all_ready:
-        st.info("Envie o Excel combinado na barra lateral (ou ative o modo Demo) para usar a Ferramenta de Busca.")
-        st.stop()
-
     st.title("🔎 Ferramenta de Busca")
     st.caption("Filtre jogadores por **percentis mínimos** em um *position preset*. Os percentis são calculados no **dataset completo** (com inversão de métricas negativas), enquanto o filtro de **minutos** é aplicado ao final.")
 
