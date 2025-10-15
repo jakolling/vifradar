@@ -974,6 +974,15 @@ if demo_mode:
     })
     df = compute_composite_metrics(df_demo, DEFAULT_OFF_WEIGHTS)
 elif page == "Ferramenta de Busca":
+    # --- Garantia: só continue se df_all existir e estiver pronto ---
+    try:
+        _df_all_ready = hasattr(df_all, "columns") and len(df_all.columns) > 0
+    except NameError:
+        _df_all_ready = False
+    if not _df_all_ready:
+        st.info("Envie o Excel combinado na barra lateral (ou ative o modo Demo) para usar a Ferramenta de Busca.")
+        st.stop()
+
     st.title("🔎 Ferramenta de Busca")
     st.caption("Filtre jogadores por **percentis mínimos** em um *position preset*. Os percentis são calculados no **dataset completo** (com inversão de métricas negativas), enquanto o filtro de **minutos** é aplicado ao final.")
 
