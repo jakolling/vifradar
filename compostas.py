@@ -836,7 +836,6 @@ min_minutes = st.sidebar.number_input(
 # --- Prepare df_all early so all pages can rely on it ---
 df = None
 if demo_mode:
-    # Minimal synthetic demo to enable all pages without visiting Dashboard first
     st.warning("Demo mode is ON — using a small synthetic sample for all pages.")
     df_demo = pd.DataFrame({
         "Player": ["Player A","Player B","Player C"],
@@ -844,7 +843,6 @@ if demo_mode:
         "Team": ["RFS Riga","RFS Riga","RFS Riga"],
         "Position": ["FW","MF","DF"],
         "Minutes played": [900, 850, 780],
-        # a couple of typical metrics to keep features alive in Ferramenta de Busca
         "xG per 90":[0.35,0.20,0.05],
         "xA per 90":[0.18,0.25,0.07],
         "Successful attacking actions per 90":[3.2, 2.1, 1.4],
@@ -859,7 +857,6 @@ elif up is not None:
         st.error("Erro ao carregar/calcular métricas.")
         st.exception(e)
 
-# Enforce presence of df and base minutes column if available
 if df is not None and not df.empty:
     df_all = _fix_npxg_block(df.copy())
 page = st.sidebar.radio("📑 Pages", ["Dashboard", "Metrics Documentation", "Ferramenta de Busca"])
@@ -927,9 +924,159 @@ These are normalized **[0–100]** composites built from z-scores of component s
     st.stop()
 
 # ===================== MAIN =====================
+el page == "Dashboard":
+    st.title("⚽ Composite Metrics & Radar")
+
+    st.caption("Integrated with composite metrics + physical/technical composites")
 
 
-if page == "Ferramenta de Busca":
+
+    df = None
+
+    if demo_mode:
+
+        st.warning("Demo mode is ON — synthetic sample loaded.")
+
+        df_demo = pd.DataFrame({
+
+            "Player": ["Player A","Player B","Player C"],
+
+            "Team": ["X","Y","Z"],
+
+            "Position": ["CF","RW","DMF"],
+
+            "Minutes played": [900, 880, 910],
+
+            "Successful attacking actions per 90":[5,7,2],
+
+            "xG per 90":[0.3,0.2,0.1],
+
+            "xA per 90":[0.2,0.4,0.05],
+
+            "Key passes per 90":[1.2,1.5,0.6],
+
+            "Deep completions per 90":[1.0,0.8,0.4],
+
+            "Deep completed crosses per 90":[0.2,0.5,0.0],
+
+            "Progressive runs per 90":[1.1,1.6,0.3],
+
+            "Passes to penalty area per 90":[0.6,0.9,0.2],
+
+            "Smart passes per 90":[0.4,0.5,0.2],
+
+            "Crosses to goalie box per 90":[0.1,0.3,0.0],
+
+            "Touches in box per 90":[3.5,4.0,1.2],
+
+            "xG":[6.0, 4.8, 1.2],
+
+            "Goals":[5,4,1],
+
+            "Penalties taken":[1,0,0],
+
+            "Shots":[20,18,9],
+
+            "Shot assists per 90":[0.5,0.8,0.2],
+
+            "Second assists per 90":[0.1,0.2,0.0],
+
+            "Accurate passes %":[82,78,90],
+
+            "Through passes per 90":[0.3,0.6,0.1],
+
+            "Accurate smart passes, %":[55,52,60],
+
+            "Accurate through passes, %":[42,38,50],
+
+            "Accurate passes to penalty area, %":[40,44,35],
+
+            "Progressive passes per 90":[3.0,3.8,1.2],
+
+            "Accurate progressive passes, %":[68,62,70],
+
+            "Dribbles per 90":[2.0,3.5,0.8],
+
+            "Successful dribbles, %":[55,48,52],
+
+            "Accelerations per 90":[1.2,1.8,0.6],
+
+            "Successful defensive actions per 90":[4.0,2.0,6.0],
+
+            "Defensive duels per 90":[5.0,3.0,8.0],
+
+            "Defensive duels won, %":[60,55,68],
+
+            "Aerial duels per 90":[2.0,1.0,3.0],
+
+            "Aerial duels won, %":[50,45,62],
+
+            "PAdj Sliding tackles":[0.3,0.1,0.7],
+
+            "PAdj Interceptions":[0.8,0.4,1.2],
+
+            "Shots blocked per 90":[0.2,0.1,0.5],
+
+            "Passes per 90":[35,42,55],
+
+            "Received passes per 90":[12,14,10],
+
+            "Touches per 90":[50,48,62],
+
+            "Passes to final third per 90":[2.2,1.9,1.5],
+
+            "Accurate passes to final third, %":[70,64,72],
+
+            "Forward passes per 90":[12,14,10],
+
+            "Accurate forward passes, %":[78,75,82],
+
+            "Long passes per 90":[3.0,2.0,5.0],
+
+            "Accurate long passes, %":[55,48,62],
+
+            "Lateral passes per 90":[7.0,8.0,6.0],
+
+            "Accurate lateral passes, %":[90,88,92],
+
+            "Back passes per 90":[4.0,6.0,5.0],
+
+            "Accurate back passes, %":[94,96,95],
+
+            "Head goals per 90":[0.05,0.02,0.03],
+
+            "Goal conversion, %":[18,15,8],
+
+            "Shots on target, %":[45,42,38],
+
+            "Fouls per 90":[1.5,1.8,2.2],
+
+            "Yellow cards per 90":[0.2,0.15,0.25],
+
+            "Red cards per 90":[0.01,0.0,0.02],
+
+            "Distance P90":[10000,9800,10500],
+
+            "Running Distance P90":[8000,7800,8200],
+
+            "HI Distance P90":[1500,1300,1100],
+
+            "HSR Distance P90":[600,550,500],
+
+            "Sprint Distance P90":[250,220,200],
+
+            "HSR Count P90":[40,35,30],
+
+            "Sprint Count P90":[15,12,10],
+
+            "Explosive Acceleration to HSR Count P90":[3,2,2],
+
+            "Explosive Acceleration to Sprint Count P90":[1,1,1],
+
+        })
+
+        df = compute_composite_metrics(df_demo, DEFAULT_OFF_WEIGHTS)
+el page == "Ferramenta de Busca":
     # --- Garantia: só continue se df_all existir e estiver pronto ---
     try:
         _df_all_ready = hasattr(df_all, "columns") and len(df_all.columns) > 0
@@ -958,24 +1105,24 @@ if page == "Ferramenta de Busca":
         for m in metrics_for_preset:
             thresholds[m] = st.slider(f"{m}", 0, 100, 70)
 
-
-    # Cálculo de percentis por métrica (dataset completo) — rank-based (0–100)
-    def _percentile_rank_series(s: pd.Series, ascending: bool) -> pd.Series:
-        s_num = pd.to_numeric(s, errors="coerce")
-        mask = s_num.notna()
-        n = int(mask.sum())
-        out = pd.Series(np.nan, index=s.index)
-        if n <= 1:
-            return out
-        r = s_num[mask].rank(ascending=ascending, method="average")
-        out.loc[mask] = 100.0 * (n - r) / (n - 1)
+    
+# Cálculo de percentis por métrica (dataset completo) — rank-based (0–100)
+def _percentile_rank_series(s: pd.Series, ascending: bool) -> pd.Series:
+    s_num = pd.to_numeric(s, errors="coerce")
+    mask = s_num.notna()
+    n = int(mask.sum())
+    out = pd.Series(np.nan, index=s.index)
+    if n <= 1:
         return out
+    r = s_num[mask].rank(ascending=ascending, method="average")
+    out.loc[mask] = 100.0 * (n - r) / (n - 1)
+    return out
 
-    percent_cols = {}
-    for m in metrics_for_preset:
-        if m in df_all.columns:
-            ascending = (m in NEGATE_METRICS)  # métricas negativas: menor é melhor
-            percent_cols[m] = _percentile_rank_series(df_all[m], ascending=ascending)
+percent_cols = {}
+for m in metrics_for_preset:
+    if m in df_all.columns:
+        ascending = (m in NEGATE_METRICS)  # métricas negativas: menor é melhor
+        percent_cols[m] = _percentile_rank_series(df_all[m], ascending=ascending)
 
     res = df_all.copy()
     for m, col in percent_cols.items():
@@ -1178,6 +1325,12 @@ st.download_button(
     mime="text/csv",
 )
 
+# Data preparada antes (df_all). Se não existir, para aqui.
+if "df_all" not in globals():
+    st.info("Envie o Excel combinado na barra lateral (ou ative Demo).")
+    st.stop()
+
+if page == "Metrics Documentation":
     st.title("📘 Composite Metrics Documentation")
     st.caption("Explanation of each composite metric and how it is calculated.")
 
@@ -1240,90 +1393,7 @@ These are normalized **[0–100]** composites built from z-scores of component s
     st.stop()
 
 # ===================== MAIN =====================
-
-if page == "Dashboard":
-    st.title("⚽ Composite Metrics & Radar")
-
-    st.caption("Integrated with composite metrics + physical/technical composites")
-
-
-
-# Data prepared earlier. Ensure availability:
-if "df_all" not in globals():
-    st.info("Envie o Excel combinado na barra lateral (ou ative Demo).")
-    st.stop()
-
-
-df_view = df_all[df_all["Minutes played"].fillna(0) >= int(min_minutes)].copy()
-st.caption(
-    f"Filtro de minutos afeta apenas os **Rankings** (mostra {df_view.shape[0]} de {df_all.shape[0]} jogadores). "
-    "Cálculos de radar e percentis permanecem sobre o dataset completo."
-)
-
-# ===================== KPIs =====================
-st.subheader("Overview")
-col1, col2, col3, col4 = st.columns(4)
-with col1: st.markdown(f"<div class='metric-card'><div class='subtle small'>Players</div><h3>{df_all.shape[0]}</h3></div>", unsafe_allow_html=True)
-with col2: st.markdown(f"<div class='metric-card'><div class='subtle small'>Teams</div><h3>{df_all['Team'].nunique() if 'Team' in df_all.columns else '—'}</h3></div>", unsafe_allow_html=True)
-with col3: st.markdown(f"<div class='metric-card'><div class='subtle small'>Positions</div><h3>{df_all['Position'].nunique() if 'Position' in df_all.columns else '—'}</h3></div>", unsafe_allow_html=True)
-with col4: st.markdown(f"<div class='metric-card'><div class='subtle small'>Columns</div><h3>{df_all.shape[1]}</h3></div>", unsafe_allow_html=True)
-
-# ===================== Rankings =====================
-st.markdown("<div class='section'>Rankings</div>", unsafe_allow_html=True)
-
-def _leaderboard(metric):
-    d = df_view.copy()
-    if d.empty:
-        st.info("Nenhum jogador atende ao filtro de minutos para exibição no ranking.")
-        return
-    if team_filter:
-        d = d[d["Team"].astype(str) == team_filter]
-    if pos_filter:
-        d = d[d["Position"].astype(str).str.contains(pos_filter)]
-    if metric not in d.columns:
-        st.warning(f"Métrica {metric} não encontrada no dataset.")
-        return
-    id_cols = [c for c in ID_COLS_CANDIDATES if c in d.columns]
-    cols = id_cols + [
-        "Work Rate Offensive","Offensive Intensity","Offensive Explosion",
-        "Work Rate Defensive","Defensive Intensity","Defensive Explosion",
-        "Creativity","Progression","Defence","Passing Quality","Aerial Defence",
-        "Involvement","Discipline","xG Buildup","Box Threat","Finishing",
-        "Poaching","Aerial Threat","npxG per 90","npxG per Shot","G-xG",
-    ]
-    present = [c for c in cols if c in d.columns]
-    out = d.dropna(subset=[metric]).sort_values(metric, ascending=False).head(TOPN)
-    st.dataframe(out[present], use_container_width=True)
-
-t1, t2, t3, t4, t5, t6 = st.tabs([
-    "Work Rate Offensive","Offensive Intensity","Offensive Explosion",
-    "Work Rate Defensive","Defensive Intensity","Defensive Explosion",
-])
-with t1: _leaderboard("Work Rate Offensive")
-with t2: _leaderboard("Offensive Intensity")
-with t3: _leaderboard("Offensive Explosion")
-with t4: _leaderboard("Work Rate Defensive")
-with t5: _leaderboard("Defensive Intensity")
-with t6: _leaderboard("Defensive Explosion")
-
-# ===================== Radar Generator + Ranking Bars =====================
-st.markdown("<div class='section'>Radar Generator</div>", unsafe_allow_html=True)
-
-def _merge_presets(preset_names: list[str], df: pd.DataFrame) -> list[str]:
-    merged = []
-    for p in preset_names:
-        for m in PRESETS.get(p, []):
-            if m in df.columns and df[m].notna().any() and m not in merged:
-                merged.append(m)
-    return merged
-
-colA, colB = st.columns([1, 2])
-with colA:
-    all_presets = list(PRESETS.keys())
-    selected_presets = st.multiselect(
-        "Position presets (choose up to 3)",
-        options=all_pr
-if page == "Dashboard":
+el page == "Dashboard":
     st.title("⚽ Composite Metrics & Radar")
 
     st.caption("Integrated with composite metrics + physical/technical composites")
@@ -1474,7 +1544,201 @@ if page == "Dashboard":
 
         })
 
-        df = compute_composite_metrics(df_demo, DEFAULT_OFF_WEIGHTS)esets,
+        df = compute_composite_metrics(df_demo, DEFAULT_OFF_WEIGHTS)
+el page == "Ferramenta de Busca":
+    # --- Garantia: só continue se df_all existir e estiver pronto ---
+    try:
+        _df_all_ready = hasattr(df_all, "columns") and len(df_all.columns) > 0
+    except NameError:
+        _df_all_ready = False
+    if not _df_all_ready:
+        st.info("Envie o Excel combinado na barra lateral (ou ative o modo Demo) para usar a Ferramenta de Busca.")
+        st.stop()
+
+    st.title("🔎 Ferramenta de Busca")
+    st.caption("Filtre jogadores por **percentis mínimos** em um *position preset*. Os percentis são calculados no **dataset completo** (com inversão de métricas negativas), enquanto o filtro de **minutos** é aplicado ao final.")
+
+    # Seleção de preset e configuração dos limiares
+    preset_name = st.selectbox("Position preset", options=list(PRESETS.keys()))
+    metrics_for_preset = PRESETS[preset_name]
+
+    use_global = st.checkbox("Usar um único percentil mínimo para todas as métricas", value=True)
+    global_min = st.slider("Percentil mínimo (todas as métricas)", 0, 100, 70, help="Aplica-se somente se a opção acima estiver marcada.")
+
+    # Limiares por métrica
+    thresholds = {}
+    if use_global:
+        thresholds = {m: global_min for m in metrics_for_preset}
+    else:
+        st.markdown("#### Limiares por métrica")
+        for m in metrics_for_preset:
+            thresholds[m] = st.slider(f"{m}", 0, 100, 70)
+
+    
+# Cálculo de percentis por métrica (dataset completo) — rank-based (0–100)
+def _percentile_rank_series(s: pd.Series, ascending: bool) -> pd.Series:
+    s_num = pd.to_numeric(s, errors="coerce")
+    mask = s_num.notna()
+    n = int(mask.sum())
+    out = pd.Series(np.nan, index=s.index)
+    if n <= 1:
+        return out
+    r = s_num[mask].rank(ascending=ascending, method="average")
+    out.loc[mask] = 100.0 * (n - r) / (n - 1)
+    return out
+
+percent_cols = {}
+for m in metrics_for_preset:
+    if m in df_all.columns:
+        ascending = (m in NEGATE_METRICS)  # métricas negativas: menor é melhor
+        percent_cols[m] = _percentile_rank_series(df_all[m], ascending=ascending)
+
+    res = df_all.copy()
+    for m, col in percent_cols.items():
+        res[f"{m} (pct)"] = col
+
+    # Aplica filtros de minutes, team e posição já existentes
+    if "Minutes played" in res.columns:
+        min_col = "Minutes played"
+    elif "Minutes" in res.columns:
+        min_col = "Minutes"
+    else:
+        min_col = None
+
+    if min_col is not None and isinstance(min_minutes, (int, float)):
+        res = res[pd.to_numeric(res[min_col], errors="coerce").fillna(0) >= float(min_minutes)]
+
+    if team_filter:
+        if "Team" in res.columns:
+            res = res[res["Team"].astype(str) == team_filter]
+
+    if pos_filter:
+        if "Position" in res.columns:
+            res = res[res["Position"].astype(str).str.contains(pos_filter)]
+
+    # Filtro por percentis mínimos (todas as métricas do preset)
+    mask = pd.Series(True, index=res.index)
+    for m in metrics_for_preset:
+        pct_col = f"{m} (pct)"
+        if pct_col in res.columns:
+            mask &= (pd.to_numeric(res[pct_col], errors="coerce") >= thresholds.get(m, 0))
+        else:
+            # Se a métrica não existir, o jogador falha no critério
+            mask &= False
+    res = res[mask]
+
+    # Ordenação por média dos percentis do preset (opcional)
+    pct_cols = [f"{m} (pct)" for m in metrics_for_preset if f"{m} (pct)" in res.columns]
+    if pct_cols:
+        res["Media pct (preset)"] = res[pct_cols].mean(axis=1)
+        res = res.sort_values("Media pct (preset)", ascending=False)
+
+    # Mostra resultados
+    show_cols = base_cols + pct_cols
+    show_cols = [c for c in show_cols if c in res.columns]
+    st.markdown(f"**Jogadores encontrados:** {len(res)}")
+    if len(show_cols) == 0:
+        st.info("Nenhuma coluna válida para exibir.")
+    else:
+        st.dataframe(res[show_cols].reset_index(drop=True))
+
+    # Download
+    csv_bytes = res[show_cols].to_csv(index=False).encode("utf-8") if show_cols else b""
+    st.download_button("Baixar resultados (CSV)", data=csv_bytes, file_name="busca_percentis.csv", mime="text/csv")
+
+else:
+    if up is None:
+        st.info("Upload your merged Excel on the left panel to begin (or enable Demo mode).")
+    else:
+        with st.spinner("Loading data and computing metrics…"):
+            try:
+                df_raw = _load_excel(up)
+                df = compute_composite_metrics(df_raw, DEFAULT_OFF_WEIGHTS)
+            except Exception as e:
+                st.error("There was an error while computing metrics.")
+                st.exception(e)
+
+if df is None or df.empty:
+    st.stop()
+
+# Enforce presence of Minutes played
+if "Minutes played" not in df.columns:
+    st.error("Arquivo não possui a coluna 'Minutes played'. Renomeie a coluna para exatamente 'Minutes played' e reenvié.")
+    st.stop()
+
+# Keep global (df_all) for all calculations; df_view only controls Rankings listing
+df_all = df.copy()
+df_all = _fix_npxg_block(df_all)
+
+df_view = df_all[df_all["Minutes played"].fillna(0) >= int(min_minutes)].copy()
+st.caption(
+    f"Filtro de minutos afeta apenas os **Rankings** (mostra {df_view.shape[0]} de {df_all.shape[0]} jogadores). "
+    "Cálculos de radar e percentis permanecem sobre o dataset completo."
+)
+
+# ===================== KPIs =====================
+st.subheader("Overview")
+col1, col2, col3, col4 = st.columns(4)
+with col1: st.markdown(f"<div class='metric-card'><div class='subtle small'>Players</div><h3>{df_all.shape[0]}</h3></div>", unsafe_allow_html=True)
+with col2: st.markdown(f"<div class='metric-card'><div class='subtle small'>Teams</div><h3>{df_all['Team'].nunique() if 'Team' in df_all.columns else '—'}</h3></div>", unsafe_allow_html=True)
+with col3: st.markdown(f"<div class='metric-card'><div class='subtle small'>Positions</div><h3>{df_all['Position'].nunique() if 'Position' in df_all.columns else '—'}</h3></div>", unsafe_allow_html=True)
+with col4: st.markdown(f"<div class='metric-card'><div class='subtle small'>Columns</div><h3>{df_all.shape[1]}</h3></div>", unsafe_allow_html=True)
+
+# ===================== Rankings =====================
+st.markdown("<div class='section'>Rankings</div>", unsafe_allow_html=True)
+
+def _leaderboard(metric):
+    d = df_view.copy()
+    if d.empty:
+        st.info("Nenhum jogador atende ao filtro de minutos para exibição no ranking.")
+        return
+    if team_filter:
+        d = d[d["Team"].astype(str) == team_filter]
+    if pos_filter:
+        d = d[d["Position"].astype(str).str.contains(pos_filter)]
+    if metric not in d.columns:
+        st.warning(f"Métrica {metric} não encontrada no dataset.")
+        return
+    id_cols = [c for c in ID_COLS_CANDIDATES if c in d.columns]
+    cols = id_cols + [
+        "Work Rate Offensive","Offensive Intensity","Offensive Explosion",
+        "Work Rate Defensive","Defensive Intensity","Defensive Explosion",
+        "Creativity","Progression","Defence","Passing Quality","Aerial Defence",
+        "Involvement","Discipline","xG Buildup","Box Threat","Finishing",
+        "Poaching","Aerial Threat","npxG per 90","npxG per Shot","G-xG",
+    ]
+    present = [c for c in cols if c in d.columns]
+    out = d.dropna(subset=[metric]).sort_values(metric, ascending=False).head(TOPN)
+    st.dataframe(out[present], use_container_width=True)
+
+t1, t2, t3, t4, t5, t6 = st.tabs([
+    "Work Rate Offensive","Offensive Intensity","Offensive Explosion",
+    "Work Rate Defensive","Defensive Intensity","Defensive Explosion",
+])
+with t1: _leaderboard("Work Rate Offensive")
+with t2: _leaderboard("Offensive Intensity")
+with t3: _leaderboard("Offensive Explosion")
+with t4: _leaderboard("Work Rate Defensive")
+with t5: _leaderboard("Defensive Intensity")
+with t6: _leaderboard("Defensive Explosion")
+
+# ===================== Radar Generator + Ranking Bars =====================
+st.markdown("<div class='section'>Radar Generator</div>", unsafe_allow_html=True)
+
+def _merge_presets(preset_names: list[str], df: pd.DataFrame) -> list[str]:
+    merged = []
+    for p in preset_names:
+        for m in PRESETS.get(p, []):
+            if m in df.columns and df[m].notna().any() and m not in merged:
+                merged.append(m)
+    return merged
+
+colA, colB = st.columns([1, 2])
+with colA:
+    all_presets = list(PRESETS.keys())
+    selected_presets = st.multiselect(
+        "Position presets (choose up to 3)",
+        options=all_presets,
         default=[all_presets[0]]
     )
     if len(selected_presets) > 3:
