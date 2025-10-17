@@ -1127,6 +1127,11 @@ if page == "Ferramenta de Busca":
     for m, col in percent_cols.items():
         res[f"{m} (pct)"] = col
 
+    # Colunas base e lista de colunas de percentil
+    base_cols = [c for c in ["Player", "Short Name", "Team", "Position", "Minutes played", "Minutes"] if c in res.columns]
+    pct_col_names = [f"{m} (pct)" for m in metrics_for_preset if f"{m} (pct)" in res.columns]
+
+
     # Aplica filtros de minutes, team e posição já existentes
     if "Minutes played" in res.columns:
         min_col = "Minutes played"
@@ -1164,7 +1169,7 @@ if page == "Ferramenta de Busca":
         res = res.sort_values("Media pct (preset)", ascending=False)
 
     # Mostra resultados
-    show_cols = base_cols + pct_cols
+    show_cols = base_cols + pct_col_names
     show_cols = [c for c in show_cols if c in res.columns]
     st.markdown(f"**Jogadores encontrados:** {len(res)}")
     if len(show_cols) == 0:
