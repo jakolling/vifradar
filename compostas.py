@@ -111,6 +111,72 @@ class Radar:
             ax.text(angle, 1.05, f"[{lo:.2f} – {up:.2f}]", fontsize=fontsize, ha='center', va='center')
 # --- End Radar helpers ---
 
+# --- RadarPRO (to avoid collision with mplsoccer.Radar) ---
+class RadarPRO:
+    def __init__(self, params, lower_bounds, upper_bounds, num_rings=4):
+        import numpy as np
+        self.params = list(params)
+        self.lowers = np.array(list(lower_bounds), dtype=float)
+        self.uppers = np.array(list(upper_bounds), dtype=float)
+        self.num_vars = len(self.params)
+        self.num_rings = max(1, int(num_rings))
+        self.theta, self.RadarAxes = _radar_factory(self.num_vars, frame='polygon')
+
+    def _scale(self, values):
+        import numpy as np
+        v = np.array(list(values), dtype=float)
+        span = np.where((self.uppers - self.lowers) < 1e-12, 1.0, self.uppers - self.lowers)
+        return np.clip((v - self.lowers) / span, 0.0, 1.0)
+
+    def setup_axis(self, ax=None):
+        import matplotlib.pyplot as plt
+        if ax is None:
+            ax = plt.subplot(111, projection='radar')
+        else:
+            ax = plt.subplot(ax.get_subplotspec(), projection='radar')
+        ax.set_ylim(0, 1)
+        ax.set_yticklabels([])
+        ax.grid(True, alpha=0.2)
+        return ax
+
+    def draw_circles(self, ax, **kwargs):
+        for r in __import__('numpy').linspace(0.25, 1.0, self.num_rings):
+            ax.plot(self.theta, [r]*len(self.theta), **kwargs)
+
+    def spoke(self, ax, **kwargs):
+        for t in self.theta:
+            ax.plot([t, t], [0, 1], **kwargs)
+
+    def draw_radar(self, values, ax=None, kwargs_radar=None):
+        import matplotlib.pyplot as plt
+        import numpy as np
+        if ax is None:
+            ax = plt.gca()
+        vals = self._scale(values)
+        angles = np.concatenate((self.theta, [self.theta[0]]))
+        vals = np.concatenate((vals, [vals[0]]))
+        kwargs_radar = kwargs_radar or {"alpha": 0.35, "linewidth": 2}
+        ax.plot(angles, vals, **kwargs_radar)
+        fc = kwargs_radar.get("facecolor", None)
+        if fc is not None:
+            ax.fill(angles, vals, facecolor=fc, alpha=0.25)
+
+    def draw_param_labels(self, ax=None, fontsize=10):
+        import matplotlib.pyplot as plt
+        if ax is None:
+            ax = plt.gca()
+        ax.set_varlabels(self.params, fontsize=fontsize)
+
+    def draw_range_labels(self, ax=None, fontsize=8):
+        import matplotlib.pyplot as plt
+        if ax is None:
+            ax = plt.gca()
+        for angle, p, lo, up in zip(self.theta, self.params, self.lowers, self.uppers):
+            ax.text(angle, 1.05, f"[{lo:.2f} – {up:.2f}]", fontsize=fontsize, ha='center', va='center')
+# --- End RadarPRO ---
+
+
+
 # === PRO PDF function (placed near top) ===
 def make_radar_bars_pdf_a4_pro(
     df: pd.DataFrame,
@@ -150,7 +216,7 @@ def make_radar_bars_pdf_a4_pro(
     row_b = _find_row(df, player_b) if player_b else None
 
     lowers, uppers = _bounds_from_df(df, metrics)
-    radar = Radar(metrics, lowers, uppers, num_rings=4)
+    radar = RadarPRO(metrics, lowers, uppers, num_rings=4)
 
     v_a = _values_for_player(row_a, metrics)
     v_b = _values_for_player(row_b, metrics) if row_b is not None else None
@@ -1171,7 +1237,7 @@ def plot_radar(df: pd.DataFrame, player_a: str, player_b: Optional[str], metrics
     row_a = df[df["Player"] == player_a].iloc[0]
     row_b = df[df["Player"] == player_b].iloc[0] if player_b else None
     lowers, uppers = _bounds_from_df(df, metrics)
-    radar = Radar(metrics, lowers, uppers, num_rings=4)
+    radar = RadarPRO(metrics, lowers, uppers, num_rings=4)
 
     v_a = _values_for_player(row_a, metrics)
     v_b = _values_for_player(row_b, metrics) if row_b is not None else None
@@ -1266,7 +1332,7 @@ def make_radar_bars_png(df: pd.DataFrame, player_a: str, player_b: Optional[str]
     metrics = (metrics or [])[:16]
 
     lowers, uppers = _bounds_from_df(df, metrics)
-    radar = Radar(metrics, lowers, uppers, num_rings=4)
+    radar = RadarPRO(metrics, lowers, uppers, num_rings=4)
 
     row_a = df[df["Player"] == player_a].iloc[0]
     v_a = _values_for_player(row_a, metrics)
