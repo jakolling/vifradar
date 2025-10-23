@@ -1,4 +1,7 @@
-from __future__ import annotations
+File "/mount/src/vifradar/compostas.py", line 1425
+  from __future__ import annotations
+  ^
+SyntaxError: from __future__ imports must occur at the beginning of the filefrom __future__ import annotations
 
 import io
 import math
