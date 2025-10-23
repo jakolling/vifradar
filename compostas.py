@@ -13,11 +13,11 @@ from mplsoccer import Radar
 from datetime import datetime, date
 
 
-# ==== Export: DOCX (radar + barras) ====
-import io as _io_for_docx
-from datetime import datetime as _dt_for_docx
+# ==== DOCX export (robusto) ====
+import io as _io_docx
+from datetime import datetime as _dt_docx
 
-def make_radar_bars_docx(
+def _base_make_radar_bars_docx(
     df,
     player_a,
     player_b=None,
@@ -27,10 +27,7 @@ def make_radar_bars_docx(
     title=None,
     crest_bytes=None,
     **kwargs
-) -> _io_for_docx.BytesIO:
-    """Gera DOCX com título, timestamp, (opcional) brasão e imagem Radar+Barras.
-    Requer pacote: python-docx
-    """
+) -> _io_docx.BytesIO:
     try:
         from docx import Document
         from docx.shared import Inches
@@ -39,20 +36,20 @@ def make_radar_bars_docx(
         raise RuntimeError("Instale 'python-docx' (pip install python-docx).") from e
 
     # Gera PNG combinado
-    if 'make_radar_bars_png' not in globals():
-        raise RuntimeError("Função make_radar_bars_png não encontrada. Ajuste o nome conforme seu app.")
-    png_buf = make_radar_bars_png(
-        df,
-        player_a,
-        player_b,
-        (metrics or [])[:16],
-        color_a,
-        color_b,
-    )
+    if 'make_radar_bars_png' in globals():
+        png_buf = make_radar_bars_png(
+            df,
+            player_a,
+            player_b,
+            (metrics or [])[:16],
+            color_a,
+            color_b,
+        )
+    else:
+        png_buf = None
 
     doc = Document()
     usable_width_inches = 6.5
-
     if title is None:
         title = f"{player_a} vs {player_b}" if player_b else f"{player_a}"
 
@@ -62,7 +59,7 @@ def make_radar_bars_docx(
     except Exception:
         pass
 
-    sub = doc.add_paragraph(f"Gerado em {_dt_for_docx.now().strftime('%Y-%m-%d %H:%M')}")
+    sub = doc.add_paragraph(f"Gerado em {_dt_docx.now().strftime('%Y-%m-%d %H:%M')}")
     try:
         sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
     except Exception:
@@ -71,18 +68,46 @@ def make_radar_bars_docx(
     # brasão opcional
     if crest_bytes:
         try:
-            crest_stream = _io_for_docx.BytesIO(crest_bytes)
+            crest_stream = _io_docx.BytesIO(crest_bytes)
             doc.add_picture(crest_stream, width=Inches(1.0))
         except Exception:
             pass
 
-    img_stream = _io_for_docx.BytesIO(png_buf.getvalue())
-    doc.add_picture(img_stream, width=Inches(usable_width_inches))
+    # imagem principal, se houver
+    if png_buf is not None:
+        try:
+            img_stream = _io_docx.BytesIO(png_buf.getvalue())
+            doc.add_picture(img_stream, width=Inches(usable_width_inches))
+        except Exception:
+            doc.add_paragraph("Não foi possível embutir a imagem gerada.")
 
-    out = _io_for_docx.BytesIO()
+    out = _io_docx.BytesIO()
     doc.save(out)
     out.seek(0)
     return out
+
+# Wrapper ULTRASAFE: nunca deixa TypeError escapar, e remove kwargs desconhecidos
+def make_radar_bars_docx(*args, **kwargs) -> _io_docx.BytesIO:
+    try:
+        return _base_make_radar_bars_docx(*args, **kwargs)
+    except TypeError:
+        # remove params possivelmente inesperados
+        for k in list(kwargs.keys()):
+            if k not in ("df","player_a","player_b","metrics","color_a","color_b","title","crest_bytes"):
+                kwargs.pop(k, None)
+        kwargs.pop("crest_bytes", None)  # se versão antiga não aceita
+        try:
+            return _base_make_radar_bars_docx(*args, **kwargs)
+        except TypeError:
+            # fallback: DOCX mínimo para não quebrar o app
+            from docx import Document
+            buf = _io_docx.BytesIO()
+            doc = Document()
+            doc.add_heading("Radar + Barras", level=1)
+            doc.add_paragraph("Falha ao chamar a função original; gerado DOCX mínimo.")
+            doc.save(buf)
+            buf.seek(0)
+            return buf
 def _player_age(row):
     # Try common age fields
     for key in ["Age", "age"]:
@@ -1398,7 +1423,7 @@ if p1 and metrics_sel:
 
 # Download button for A4 DOCX (PRO)
 if p1 and metrics_sel:
-    docx_buf = make_radar_bars_docx(
+    pdf_buf = make_radar_bars_docx(
         df_all,
         p1,
         None if p2 == "—" else p2,
@@ -1410,7 +1435,7 @@ if p1 and metrics_sel:
     )
     st.download_button(
         "⬇️ Download Radar + Barras (DOCX A4)",
-        data=docx_buf.getvalue(),
+        data=pdf_buf.getvalue(),
         file_name="radar_barras_A4.docx",
         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
@@ -1644,24 +1669,4 @@ def _choose_default_blocks(df: pd.DataFrame) -> dict:
 
     return blocks
 
-
-
-
-
-# ==== Universal wrapper to prevent TypeError on extra kwargs ====
-try:
-    import inspect as _inspect_for_docx
-    _orig__make_docx = make_radar_bars_docx
-    def make_radar_bars_docx(*args, **kwargs):
-        # se houver parametros inesperados para alguma versão legada, removemos
-        crest_bytes = kwargs.get('crest_bytes', None)
-        try:
-            sig = _inspect_for_docx.signature(_orig__make_docx)
-            if 'crest_bytes' not in sig.parameters:
-                kwargs.pop('crest_bytes', None)
-        except Exception:
-            kwargs.pop('crest_bytes', None)
-        return _orig__make_docx(*args, **kwargs)
-except Exception:
-    pass
 
