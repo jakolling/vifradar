@@ -7,6 +7,17 @@ import pandas as pd
 import streamlit as st
 
 
+
+# === Early defaults to avoid NameError before Sidebar is built ===
+up: object = None
+TOPN: int = 10
+pos_filter: str = ""
+team_filter: str = ""
+demo_mode: bool = False
+min_minutes: int = 0
+df = None
+# === End early defaults ===
+
 from typing import Optional, List, Dict, Tuple, Set
 # --- Radar projection helpers (inserted) ---
 from matplotlib.projections.polar import PolarAxes
