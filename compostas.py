@@ -1323,7 +1323,7 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
     """
     import matplotlib.pyplot as plt
     from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
-    from matplotlib.patches import FancyBboxPatch, Rectangle
+    from matplotlib.patches import FancyBboxPatch
     from PIL import Image
     import io
     from datetime import datetime
@@ -1369,13 +1369,6 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
     ax_crest = fig.add_subplot(gs_page[0:2, 10:12]); ax_crest.axis("off")
 
     # Espaços reservados (quadrados brancos) - sempre renderizados, com leve borda cinza
-    def _white_box(ax):
-        rect = Rectangle((0.15, 0.15), 0.70, 0.70, transform=ax.transAxes,
-                         facecolor="white", edgecolor="#e5e7eb", linewidth=1.0)
-        ax.add_patch(rect)
-
-    _white_box(ax_photo)
-    _white_box(ax_crest)
 
     # Se imagens forem fornecidas, desenhamos POR CIMA do quadrado branco, centralizadas
     def _draw_image_center(ax, img_bytes):
@@ -1462,7 +1455,8 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
             ax.set_xticks([0, 0.5, 1])
             ax.set_xticklabels([])
         # label as text (avoids awkward wrapping of titles)
-        ax.text(0.0, 0.5, label, transform=ax.transAxes, ha="left", va="center", fontsize=8)
+        ax.text(0.0, 0.5, label, transform=ax.transAxes, ha="left", va="center", fontsize=8,
+       bbox={"facecolor": "white", "edgecolor": "none", "pad": 0.2}, zorder=5)
         for spine in ["top","right","left"]:
             ax.spines[spine].set_visible(False)
 
@@ -1486,39 +1480,18 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
 
         # Add compact bar-only pages for remaining metrics (if any)
         if remaining_metrics:
-            per_page_rows = 10  # 10 rows x 3 cols = 30 metrics per extra page
+            per_page_rows = 12  # 10 rows x 3 cols = 30 metrics per extra page
             per_page_capacity = cols_per_row * per_page_rows
 
             def _make_bars_page(chunk, title_suffix="(cont.)"):
+                # A4, no header; full-page compact grid for bars
+                from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
                 fig2 = plt.figure(figsize=(8.27, 11.69))
                 gs2  = GridSpec(nrows=12, ncols=12, figure=fig2)
-
-                # Header band with white placeholders (keep same style)
-                axh = fig2.add_subplot(gs2[0:2, :]); axh.axis("off")
-                from matplotlib.patches import FancyBboxPatch, Rectangle
-                band2 = FancyBboxPatch((0.01, 0.01), 0.98, 0.98, boxstyle="round,pad=0.02,rounding_size=0.02",
-                                       transform=axh.transAxes, linewidth=0, facecolor="#0f172a", alpha=0.98)
-                axh.add_patch(band2)
-
-                axp = fig2.add_subplot(gs2[0:2, 0:2]); axp.axis("off")
-                axc = fig2.add_subplot(gs2[0:2, 10:12]); axc.axis("off")
-                rect = Rectangle((0.15, 0.15), 0.70, 0.70, transform=axp.transAxes,
-                                  facecolor="white", edgecolor="#e5e7eb", linewidth=1.0)
-                axp.add_patch(rect)
-                rect2 = Rectangle((0.15, 0.15), 0.70, 0.70, transform=axc.transAxes,
-                                   facecolor="white", edgecolor="#e5e7eb", linewidth=1.0)
-                axc.add_patch(rect2)
-
-                axt = fig2.add_subplot(gs2[0:2, 3:9]); axt.axis("off")
-                axt.text(0.5, 0.68, f"{title} {title_suffix}", ha="center", va="center",
-                         fontsize=15, weight="bold", color="white", transform=axt.transAxes)
-                from datetime import datetime as _dt
-                axt.text(0.5, 0.32, f"Relatório gerado em {_dt.now().strftime('%d %b %Y')}",
-                         ha="center", va="center", fontsize=9, color="#cbd5e1", transform=axt.transAxes)
-
-                # Bars grid (compact)
-                sub = GridSpecFromSubplotSpec(nrows=per_page_rows, ncols=cols_per_row,
-                                              subplot_spec=gs2[2:12, 0:12], wspace=0.14, hspace=0.10)
+                # Bars grid fills the page (margins handled by bbox_inches)
+                per_rows = per_page_rows  # defined outside (e.g., 12)
+                sub = GridSpecFromSubplotSpec(nrows=per_rows, ncols=cols_per_row,
+                                              subplot_spec=gs2[0:12, 0:12], wspace=0.14, hspace=0.10)
                 for i, m in enumerate(chunk):
                     r = i // cols_per_row
                     c = i % cols_per_row
@@ -1526,20 +1499,21 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
                     info = _metric_rank_info(df, m, player_a)
                     rk, tot, norm = info.get("rank"), info.get("total"), info.get("norm")
                     label = f"{m} — {rk}/{tot}" if rk is not None else f"{m}"
-                    axb.barh([0], [norm if norm is not None else 0], height=0.12)
+                    axb.barh([0], [norm if norm is not None else 0], height=0.12, zorder=1)
                     axb.set_xlim(0, 1)
                     axb.set_ylim(-0.6, 0.6)
                     axb.set_yticks([])
                     # ticks only for bottom row
-                    if r == (per_page_rows - 1):
+                    if r == (per_rows - 1):
                         axb.set_xticks([0, 0.5, 1])
                         axb.set_xticklabels(["0%","50%","100%"], fontsize=7)
                         axb.tick_params(axis="x", pad=0)
                     else:
                         axb.set_xticks([0, 0.5, 1])
                         axb.set_xticklabels([])
-                    # draw label as text to avoid wrapping
-                    axb.text(0.0, 0.5, label, transform=axb.transAxes, ha="left", va="center", fontsize=8)
+                    # label centered on bar, drawn after bar with white bbox to avoid overlap
+                    axb.text(0.0, 0.5, label, transform=axb.transAxes, ha="left", va="center", fontsize=8,
+                             bbox={"facecolor": "white", "edgecolor": "none", "pad": 0.2}, zorder=5)
                     for spine in ["top","right","left"]:
                         axb.spines[spine].set_visible(False)
                 return fig2
