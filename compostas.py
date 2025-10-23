@@ -12,102 +12,6 @@ from mplsoccer import Radar
 
 from datetime import datetime, date
 
-
-# ==== DOCX export (robusto) ====
-import io as _io_docx
-from datetime import datetime as _dt_docx
-
-def _base_make_radar_bars_docx(
-    df,
-    player_a,
-    player_b=None,
-    metrics=None,
-    color_a="#2A9D8F",
-    color_b="#E76F51",
-    title=None,
-    crest_bytes=None,
-    **kwargs
-) -> _io_docx.BytesIO:
-    try:
-        from docx import Document
-        from docx.shared import Inches
-        from docx.enum.text import WD_ALIGN_PARAGRAPH
-    except Exception as e:
-        raise RuntimeError("Instale 'python-docx' (pip install python-docx).") from e
-
-    # Gera PNG combinado
-    if 'make_radar_bars_png' in globals():
-        png_buf = make_radar_bars_png(
-            df,
-            player_a,
-            player_b,
-            (metrics or [])[:16],
-            color_a,
-            color_b,
-        )
-    else:
-        png_buf = None
-
-    doc = Document()
-    usable_width_inches = 6.5
-    if title is None:
-        title = f"{player_a} vs {player_b}" if player_b else f"{player_a}"
-
-    h = doc.add_heading(title, level=1)
-    try:
-        h.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    except Exception:
-        pass
-
-    sub = doc.add_paragraph(f"Gerado em {_dt_docx.now().strftime('%Y-%m-%d %H:%M')}")
-    try:
-        sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    except Exception:
-        pass
-
-    # brasão opcional
-    if crest_bytes:
-        try:
-            crest_stream = _io_docx.BytesIO(crest_bytes)
-            doc.add_picture(crest_stream, width=Inches(1.0))
-        except Exception:
-            pass
-
-    # imagem principal, se houver
-    if png_buf is not None:
-        try:
-            img_stream = _io_docx.BytesIO(png_buf.getvalue())
-            doc.add_picture(img_stream, width=Inches(usable_width_inches))
-        except Exception:
-            doc.add_paragraph("Não foi possível embutir a imagem gerada.")
-
-    out = _io_docx.BytesIO()
-    doc.save(out)
-    out.seek(0)
-    return out
-
-# Wrapper ULTRASAFE: nunca deixa TypeError escapar, e remove kwargs desconhecidos
-def make_radar_bars_docx(*args, **kwargs) -> _io_docx.BytesIO:
-    try:
-        return _base_make_radar_bars_docx(*args, **kwargs)
-    except TypeError:
-        # remove params possivelmente inesperados
-        for k in list(kwargs.keys()):
-            if k not in ("df","player_a","player_b","metrics","color_a","color_b","title","crest_bytes"):
-                kwargs.pop(k, None)
-        kwargs.pop("crest_bytes", None)  # se versão antiga não aceita
-        try:
-            return _base_make_radar_bars_docx(*args, **kwargs)
-        except TypeError:
-            # fallback: DOCX mínimo para não quebrar o app
-            from docx import Document
-            buf = _io_docx.BytesIO()
-            doc = Document()
-            doc.add_heading("Radar + Barras", level=1)
-            doc.add_paragraph("Falha ao chamar a função original; gerado DOCX mínimo.")
-            doc.save(buf)
-            buf.seek(0)
-            return buf
 def _player_age(row):
     # Try common age fields
     for key in ["Age", "age"]:
@@ -1423,6 +1327,95 @@ if p1 and metrics_sel:
 
 # Download button for A4 DOCX (PRO)
 if p1 and metrics_sel:
+
+# ==== SHIM: make_radar_bars_docx compatível (injeta antes da chamada) ====
+import io as _io_docx_shim
+from datetime import datetime as _dt_docx_shim
+import inspect as _inspect_docx_shim
+
+def _shim__make_radar_bars_docx_impl(
+    df, player_a, player_b=None, metrics=None,
+    color_a="#2A9D8F", color_b="#E76F51", title=None,
+    crest_bytes=None, **kwargs
+) -> _io_docx_shim.BytesIO:
+    try:
+        from docx import Document
+        from docx.shared import Inches
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+    except Exception as e:
+        raise RuntimeError("Instale 'python-docx' (pip install python-docx).") from e
+
+    # Gera PNG combinado, se disponível
+    png_buf = None
+    if 'make_radar_bars_png' in globals():
+        png_buf = make_radar_bars_png(
+            df, player_a, player_b, (metrics or [])[:16], color_a, color_b
+        )
+
+    doc = Document()
+    if title is None:
+        title = f"{player_a} vs {player_b}" if player_b else f"{player_a}"
+    h = doc.add_heading(title, level=1)
+    try:
+        h.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    except Exception:
+        pass
+    sub = doc.add_paragraph(f"Gerado em {_dt_docx_shim.now().strftime('%Y-%m-%d %H:%M')}")
+    try:
+        sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    except Exception:
+        pass
+
+    if crest_bytes:
+        try:
+            crest_stream = _io_docx_shim.BytesIO(crest_bytes)
+            doc.add_picture(crest_stream, width=Inches(1.0))
+        except Exception:
+            pass
+
+    if png_buf is not None:
+        try:
+            img_stream = _io_docx_shim.BytesIO(png_buf.getvalue())
+            doc.add_picture(img_stream, width=Inches(6.5))
+        except Exception:
+            doc.add_paragraph("Não foi possível embutir a imagem gerada.")
+
+    out = _io_docx_shim.BytesIO()
+    doc.save(out)
+    out.seek(0)
+    return out
+
+# Wrapper que garante compatibilidade com qualquer definição existente
+try:
+    _old_docx = make_radar_bars_docx
+except NameError:
+    _old_docx = None
+
+def make_radar_bars_docx(*args, **kwargs):
+    # tenta função existente primeiro
+    if _old_docx is not None:
+        try:
+            return _old_docx(*args, **kwargs)
+        except TypeError:
+            # remove kwargs desconhecidos pela assinatura antiga
+            try:
+                sig = _inspect_docx_shim.signature(_old_docx)
+                allowed = set(sig.parameters.keys())
+                kwargs = {k:v for k,v in kwargs.items() if k in allowed}
+            except Exception:
+                pass
+            # algumas versões antigas não aceitam crest_bytes
+            kwargs.pop("crest_bytes", None)
+            try:
+                return _old_docx(*args, **kwargs)
+            except TypeError:
+                # cai para a nossa implementação robusta
+                return _shim__make_radar_bars_docx_impl(*args, **kwargs)
+    # se não havia função antiga, usa a nossa
+    return _shim__make_radar_bars_docx_impl(*args, **kwargs)
+# ==== FIM DO SHIM ====
+
+
     pdf_buf = make_radar_bars_docx(
         df_all,
         p1,
