@@ -1574,3 +1574,72 @@ def _choose_default_blocks(df: pd.DataFrame) -> dict:
     return blocks
 
 
+
+
+# ==== Re-define make_radar_bars_docx (compatível e robusta) ====
+def make_radar_bars_docx(df, player_a, player_b=None, metrics=None,
+                         color_a="#2A9D8F", color_b="#E76F51",
+                         title=None, **kwargs) -> io.BytesIO:
+    """
+    Gera um .docx contendo o PNG combinado (radar + barras).
+    Aceita parâmetros opcionais via **kwargs, incluindo:
+      - crest_bytes: bytes de imagem para brasão/logotipo
+    Requer: python-docx
+    """
+    try:
+        from docx import Document
+        from docx.shared import Inches
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+    except Exception as e:
+        raise RuntimeError("Instale 'python-docx' (pip install python-docx)") from e
+
+    # Parâmetros opcionais
+    crest_bytes = kwargs.get("crest_bytes")
+
+    # Gera PNG combinado reaproveitando a função existente
+    png_buf = make_radar_bars_png(
+        df,
+        player_a,
+        player_b,
+        (metrics or [])[:16],
+        color_a,
+        color_b,
+    )
+
+    # Monta o DOCX
+    doc = Document()
+    usable_width_inches = 6.5  # largura útil aproximada com margens padrão
+
+    if title is None:
+        title = f"{player_a} vs {player_b}" if player_b else f"{player_a}"
+
+    h = doc.add_heading(title, level=1)
+    try:
+        h.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    except Exception:
+        pass
+
+    sub = doc.add_paragraph(f"Gerado em {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    try:
+        sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    except Exception:
+        pass
+
+    # Brasão opcional
+    if crest_bytes:
+        try:
+            crest_stream = io.BytesIO(crest_bytes)
+            doc.add_picture(crest_stream, width=Inches(1.0))
+        except Exception:
+            # Não falhar se a imagem vier inválida
+            pass
+
+    # Imagem principal
+    img_stream = io.BytesIO(png_buf.getvalue())
+    doc.add_picture(img_stream, width=Inches(usable_width_inches))
+
+    out = io.BytesIO()
+    doc.save(out)
+    out.seek(0)
+    return out
+
