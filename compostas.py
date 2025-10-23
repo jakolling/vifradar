@@ -6,6 +6,98 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+
+# --- Radar projection helpers (inserted) ---
+from matplotlib.projections.polar import PolarAxes
+from matplotlib import patches
+from matplotlib.projections import register_projection
+import numpy as np
+import math
+
+def _radar_factory(num_vars, frame='circle'):
+    theta = np.linspace(0, 2*np.pi, num_vars, endpoint=False)
+    class RadarAxes(PolarAxes):
+        name = 'radar'
+        RESOLUTION = 1
+        def fill(self, *args, closed=True, **kwargs):
+            return super().fill(closed=closed, *args, **kwargs)
+        def plot(self, *args, **kwargs):
+            lines = super().plot(*args, **kwargs)
+            for line in lines:
+                self._close_line(line)
+            return lines
+        def _close_line(self, line):
+            x, y = line.get_data()
+            if x[0] != x[-1]:
+                x = np.concatenate((x, [x[0]]))
+                y = np.concatenate((y, [y[0]]))
+                line.set_data(x, y)
+        def set_varlabels(self, labels, **kwargs):
+            self.set_thetagrids(np.degrees(theta), labels, **kwargs)
+        def _gen_axes_patch(self):
+            if frame == 'circle':
+                return patches.Circle((0.5, 0.5), 0.5)
+            elif frame == 'polygon':
+                return patches.RegularPolygon((0.5, 0.5), num_vars, radius=.5, edgecolor="k")
+            else:
+                raise ValueError("unknown value for 'frame': %s" % frame)
+        def draw_r_grid(self, *args, **kwargs):
+            pass
+    register_projection(RadarAxes)
+    return theta, RadarAxes
+
+class Radar:
+    def __init__(self, params, lower_bounds, upper_bounds, num_rings=4):
+        self.params = list(params)
+        self.lowers = np.array(list(lower_bounds), dtype=float)
+        self.uppers = np.array(list(upper_bounds), dtype=float)
+        self.num_vars = len(self.params)
+        self.num_rings = max(1, int(num_rings))
+        self.theta, self.RadarAxes = _radar_factory(self.num_vars, frame='polygon')
+    def _scale(self, values):
+        v = np.array(list(values), dtype=float)
+        span = np.where((self.uppers - self.lowers) < 1e-12, 1.0, self.uppers - self.lowers)
+        return np.clip((v - self.lowers) / span, 0.0, 1.0)
+    def setup_axis(self, ax=None):
+        import matplotlib.pyplot as plt
+        if ax is None:
+            ax = plt.subplot(111, projection='radar')
+        else:
+            ax = plt.subplot(ax.get_subplotspec(), projection='radar')
+        ax.set_ylim(0, 1)
+        ax.set_yticklabels([])
+        ax.grid(True, alpha=0.2)
+        return ax
+    def draw_circles(self, ax, **kwargs):
+        for r in np.linspace(0.25, 1.0, self.num_rings):
+            ax.plot(self.theta, [r]*len(self.theta), **kwargs)
+    def spoke(self, ax, **kwargs):
+        for t in self.theta:
+            ax.plot([t, t], [0, 1], **kwargs)
+    def draw_radar(self, values, ax=None, kwargs_radar=None):
+        import matplotlib.pyplot as plt
+        if ax is None:
+            ax = plt.gca()
+        vals = self._scale(values)
+        angles = np.concatenate((self.theta, [self.theta[0]]))
+        vals = np.concatenate((vals, [vals[0]]))
+        kwargs_radar = kwargs_radar or {"alpha": 0.35, "linewidth": 2}
+        ax.plot(angles, vals, **kwargs_radar)
+        fc = kwargs_radar.get("facecolor", None)
+        if fc is not None:
+            ax.fill(angles, vals, facecolor=fc, alpha=0.25)
+    def draw_param_labels(self, ax=None, fontsize=10):
+        import matplotlib.pyplot as plt
+        if ax is None:
+            ax = plt.gca()
+        ax.set_varlabels(self.params, fontsize=fontsize)
+    def draw_range_labels(self, ax=None, fontsize=8):
+        import matplotlib.pyplot as plt
+        if ax is None:
+            ax = plt.gca()
+        for angle, p, lo, up in zip(self.theta, self.params, self.lowers, self.uppers):
+            ax.text(angle, 1.05, f"[{lo:.2f} – {up:.2f}]", fontsize=fontsize, ha='center', va='center')
+# --- End Radar helpers ---
 # === SIDEBAR Controls (moved right after st import) ===
 st.sidebar.header("⚙️ Settings")
 up = st.sidebar.file_uploader("Upload merged Excel (WyScout + SkillCorner)", type=["xlsx"])
@@ -889,311 +981,8 @@ def _leaderboard(metric):
         return
     id_cols = [c for c in ID_COLS_CANDIDATES if c in d.columns]
     cols = id_cols + [
-        "Work Rate Offensive","Offensive Intensity","Offensive Explosion",
-        "Work Rate Defensive","Defensive Intensity","Defensive Explosion",
-        "Creativity","Progression","Defence","Passing Quality","Aerial Defence",
-        "Involvement","Discipline","xG Buildup","Box Threat","Finishing",
-        "Poaching","Aerial Threat","npxG per 90","npxG per Shot","G-xG",
-    ]
-    present = [c for c in cols if c in d.columns]
-    out = d.dropna(subset=[metric]).sort_values(metric, ascending=False).head(TOPN)
-    st.dataframe(out[present], use_container_width=True)
 
-t1, t2, t3, t4, t5, t6 = st.tabs([
-    "Work Rate Offensive","Offensive Intensity","Offensive Explosion",
-    "Work Rate Defensive","Defensive Intensity","Defensive Explosion",
-])
-with t1: _leaderboard("Work Rate Offensive")
-with t2: _leaderboard("Offensive Intensity")
-with t3: _leaderboard("Offensive Explosion")
-with t4: _leaderboard("Work Rate Defensive")
-with t5: _leaderboard("Defensive Intensity")
-with t6: _leaderboard("Defensive Explosion")
-
-# ===================== Radar Generator + Ranking Bars =====================
-st.markdown("<div class='section'>Radar Generator</div>", unsafe_allow_html=True)
-
-def _merge_presets(preset_names: list[str], df: pd.DataFrame) -> list[str]:
-    merged = []
-    for p in preset_names:
-        for m in PRESETS.get(p, []):
-            if m in df.columns and df[m].notna().any() and m not in merged:
-                merged.append(m)
-    return merged
-
-colA, colB = st.columns([1, 2])
-with colA:
-    all_presets = list(PRESETS.keys())
-    selected_presets = st.multiselect(
-        "Position presets (choose up to 3)",
-        options=all_presets,
-        default=[all_presets[0]]
-    )
-    if len(selected_presets) > 3:
-        st.warning("You selected more than 3 presets; only the first 3 will be used.")
-        selected_presets = selected_presets[:3]
-
-    metrics_from_presets = _merge_presets(selected_presets, df_all)
-
-    metrics_all = sorted([
-        c for c in df_all.columns
-        if c not in ID_COLS_CANDIDATES and pd.api.types.is_numeric_dtype(df_all[c])
-    ])
-
-    default_metrics = metrics_from_presets[:16] if metrics_from_presets else []
-    metrics_sel = st.multiselect(
-        "Metrics in radar (max 16)",
-        options=metrics_all,
-        default=default_metrics,
-        help="You can add/remove metrics. If multiple presets are selected, duplicates are removed automatically."
-    )
-    if len(metrics_sel) > 16:
-        st.info(f"You selected {len(metrics_sel)} metrics; only the first 16 will be plotted.")
-
-    players = sorted(df_all["Player"].dropna().unique().tolist()) if "Player" in df_all.columns else []
-    p1 = st.selectbox("Player A", players)
-    p2 = st.selectbox("Player B (optional)", ["—"] + players)
-    color_a = st.color_picker("Color A", "#2A9D8F")
-    color_b = st.color_picker("Color B", "#E76F51")
-    # Optional images for header
-    player_photo_up = st.file_uploader("Player photo (PNG/JPG) — optional", type=["png","jpg","jpeg"], key="photo")
-    crest_up = st.file_uploader("Club crest (PNG/JPG) — optional", type=["png","jpg","jpeg"], key="crest")
-    player_photo_bytes = player_photo_up.read() if player_photo_up else None
-    crest_bytes = crest_up.read() if crest_up else None
-
-
-# Download button for combined PNG
-if p1 and metrics_sel:
-    png_buf = make_radar_bars_png(
-        df_all,
-        p1,
-        None if p2 == "—" else p2,
-        metrics_sel,
-        color_a,
-        color_b,
-    )
-    st.download_button(
-        "⬇️ Download Radar + Barras (PNG)",
-        data=png_buf.getvalue(),
-        file_name="radar_barras.png",
-        mime="image/png",
-    )
-
-# Download button for A4 PDF (PRO)
-if p1 and metrics_sel:
-    pdf_buf = make_radar_bars_pdf_a4_pro(
-        df_all,
-        p1,
-        None if p2 == "—" else p2,
-        metrics_sel,
-        color_a,
-        color_b,
-        player_photo_bytes=player_photo_bytes,
-        crest_bytes=crest_bytes,
-    )
-    st.download_button(
-        "⬇️ Download Radar + Barras (PDF A4)",
-        data=pdf_buf.getvalue(),
-        file_name="radar_barras_A4.pdf",
-        mime="application/pdf",
-    )
-with colB:
-    if p1 and metrics_sel:
-        plot_radar(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b)
-        render_metric_rank_bars(df_all, p1, metrics_sel, None if p2 == "—" else p2)
-
-# ===================== Export =====================
-st.markdown("<div class='section'>Export</div>", unsafe_allow_html=True)
-st.download_button(
-    "Download full CSV",
-    df_all.to_csv(index=False).encode("utf-8"),
-    file_name="composite_metrics_base.csv",
-    mime="text/csv",
-)
-
-
-# --- Revised presets (auto-generated) ---
-PRESETS = {'aerial_duels': ['Aerial Threat',
-                  'Aerial Defence',
-                  'Aerial duels per 90',
-                  'Aerial duels won, %',
-                  'Head goals per 90',
-                  'Involvement',
-                  'Defence'],
- 'attacking_midfielder': ['Creativity',
-                          'Progression',
-                          'xA per 90',
-                          'Key passes per 90',
-                          'Smart passes per 90',
-                          'Deep completions per 90',
-                          'Work Rate Offensive',
-                          'Offensive Intensity',
-                          'Offensive Explosion'],
- 'center_back': ['Defence',
-                 'Aerial Defence',
-                 'Aerial duels per 90',
-                 'Aerial duels won, %',
-                 'Defensive duels per 90',
-                 'Defensive duels won, %',
-                 'PAdj Interceptions',
-                 'PAdj Sliding tackles',
-                 'Passes to final third per 90',
-                 'Accurate passes %',
-                 'Work Rate Defensive',
-                 'Defensive Intensity',
-                 'Defensive Explosion'],
- 'central_midfielder': ['Progression',
-                        'Passing Quality',
-                        'PAdj Interceptions',
-                        'Successful defensive actions per 90',
-                        'Work Rate Defensive',
-                        'Defensive Intensity',
-                        'Passes to final third per 90',
-                        'Progressive runs per 90',
-                        'Deep completions per 90'],
- 'counter_attack': ['Progression',
-                    'Accelerations per 90',
-                    'Dribbles per 90',
-                    'Successful dribbles, %',
-                    'npxG per 90',
-                    'Finishing',
-                    'Box Threat'],
- 'crossing': ['Crossing',
-              'Accurate crosses, %',
-              'Deep completed crosses per 90',
-              'xA per 90',
-              'Shot assists per 90',
-              'Creativity',
-              'Passing Quality'],
- 'defensive_actions': ['Defence',
-                       'Aerial Defence',
-                       'PAdj Interceptions',
-                       'Successful defensive actions per 90',
-                       'Defensive duels won, %',
-                       'Shots blocked per 90',
-                       'Discipline'],
- 'defensive_midfielder': ['Defence',
-                          'Progression',
-                          'Discipline',
-                          'PAdj Interceptions',
-                          'Successful defensive actions per 90',
-                          'Work Rate Defensive',
-                          'Defensive Intensity',
-                          'Defensive Explosion',
-                          'Defensive duels won, %',
-                          'Aerial duels won, %'],
- 'forward': ['npxG per 90',
-             'xG per 90',
-             'Shots per 90',
-             'Shots on target, %',
-             'xA per 90',
-             'Key passes per 90',
-             'Touches in box per 90',
-             'Progressive runs per 90',
-             'Deep completions per 90',
-             'Finishing',
-             'Poaching',
-             'Aerial Threat',
-             'Work Rate Offensive',
-             'Offensive Intensity',
-             'Offensive Explosion'],
- 'full_back': ['Progression',
-               'Creativity',
-               'Passing Quality',
-               'Aerial Defence',
-               'Deep completed crosses per 90',
-               'Progressive runs per 90',
-               'Crosses per 90',
-               'Work Rate Defensive',
-               'Defensive Intensity',
-               'Defensive Explosion'],
- 'general_summary': ['Involvement', 'Creativity', 'Box Threat', 'Discipline'],
- 'playmaking_build_up': ['Successful attacking actions per 90',
-                         'Deep completions per 90',
-                         'Key passes per 90',
-                         'Discipline',
-                         'Creativity',
-                         'Passing Quality',
-                         'Progression'],
- 'shooting': ['npxG per 90',
-              'npxG per Shot',
-              'Finishing',
-              'Goal conversion, %',
-              'Shots on target, %',
-              'G-xG',
-              'Box Threat'],
- 'striker': ['Involvement',
-             'npxG per 90',
-             'npxG per Shot',
-             'Finishing',
-             'Poaching',
-             'Aerial Threat',
-             'Box Threat',
-             'Touches in box per 90',
-             'Shots per 90',
-             'Shots on target, %'],
- 'winger': ['Creativity',
-            'Progression',
-            'Dribbles per 90',
-            'Dribbles won, %',
-            'Crosses per 90',
-            'Accurate crosses, %',
-            'Deep completed crosses per 90',
-            'Progressive runs per 90',
-            'xA per 90',
-            'Key passes per 90',
-            'Work Rate Offensive',
-            'Offensive Intensity',
-            'Offensive Explosion',
-            'Successful dribbles, %']}
-
-
-# --- Guarantee fusion of playmaking + build_up into playmaking_build_up (runs after any PRESETS re-definitions) ---
-def _radar_norm_key__pm_bu(s: str) -> str:
-    return (
-        str(s).strip().lower().replace("-", "_").replace(" ", "_")
-    )
-
-def _radar_dedup_keep_order__pm_bu(seq):
-    seen = set(); out = []
-    for x in seq:
-        if x not in seen:
-            out.append(x); seen.add(x)
-    return out
-
-try:
-    _keys_map = { _radar_norm_key__pm_bu(k): k for k in list(PRESETS.keys()) }
-    _k_play  = _keys_map.get("playmaking")
-    _k_build = _keys_map.get("build_up") or _keys_map.get("buildup")
-    if _k_play and _k_build:
-        _merged = _radar_dedup_keep_order__pm_bu(PRESETS[_k_play] + PRESETS[_k_build])
-        _CORE = {"Progression", "Creativity", "Passing Quality", "xG Buildup", "Defence", "Involvement"}
-        _core_cnt = 0; _merged_limited = []
-        for m in _merged:
-            if m in _CORE:
-                if _core_cnt >= 3:
-                    continue
-                _core_cnt += 1
-            _merged_limited.append(m)
-        PRESETS["playmaking_build_up"] = _merged_limited[:10]
-        del PRESETS[_k_play]
-        del PRESETS[_k_build]
-except Exception as _e:
-    # Do not break the app if fusion fails for any reason
-    pass
-
-
-# --- A4 PDF export: horizontal percentiles-by-cohort bars with P50/P80 guides ---
-import numpy as np, pandas as pd
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
-
-
-
-
-
-
-# === PRO PDF (single source of truth) ===
+# === PRO PDF function (moved earlier) ===
 def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
                            color_a: str, color_b: str = "#E76F51") -> io.BytesIO:
     metrics = (metrics or [])[:16]
@@ -1555,6 +1344,313 @@ if page == "Ferramenta de Busca":
 
 
 
+
+# === END PRO ===
+        "Work Rate Offensive","Offensive Intensity","Offensive Explosion",
+        "Work Rate Defensive","Defensive Intensity","Defensive Explosion",
+        "Creativity","Progression","Defence","Passing Quality","Aerial Defence",
+        "Involvement","Discipline","xG Buildup","Box Threat","Finishing",
+        "Poaching","Aerial Threat","npxG per 90","npxG per Shot","G-xG",
+    ]
+    present = [c for c in cols if c in d.columns]
+    out = d.dropna(subset=[metric]).sort_values(metric, ascending=False).head(TOPN)
+    st.dataframe(out[present], use_container_width=True)
+
+t1, t2, t3, t4, t5, t6 = st.tabs([
+    "Work Rate Offensive","Offensive Intensity","Offensive Explosion",
+    "Work Rate Defensive","Defensive Intensity","Defensive Explosion",
+])
+with t1: _leaderboard("Work Rate Offensive")
+with t2: _leaderboard("Offensive Intensity")
+with t3: _leaderboard("Offensive Explosion")
+with t4: _leaderboard("Work Rate Defensive")
+with t5: _leaderboard("Defensive Intensity")
+with t6: _leaderboard("Defensive Explosion")
+
+# ===================== Radar Generator + Ranking Bars =====================
+st.markdown("<div class='section'>Radar Generator</div>", unsafe_allow_html=True)
+
+def _merge_presets(preset_names: list[str], df: pd.DataFrame) -> list[str]:
+    merged = []
+    for p in preset_names:
+        for m in PRESETS.get(p, []):
+            if m in df.columns and df[m].notna().any() and m not in merged:
+                merged.append(m)
+    return merged
+
+colA, colB = st.columns([1, 2])
+with colA:
+    all_presets = list(PRESETS.keys())
+    selected_presets = st.multiselect(
+        "Position presets (choose up to 3)",
+        options=all_presets,
+        default=[all_presets[0]]
+    )
+    if len(selected_presets) > 3:
+        st.warning("You selected more than 3 presets; only the first 3 will be used.")
+        selected_presets = selected_presets[:3]
+
+    metrics_from_presets = _merge_presets(selected_presets, df_all)
+
+    metrics_all = sorted([
+        c for c in df_all.columns
+        if c not in ID_COLS_CANDIDATES and pd.api.types.is_numeric_dtype(df_all[c])
+    ])
+
+    default_metrics = metrics_from_presets[:16] if metrics_from_presets else []
+    metrics_sel = st.multiselect(
+        "Metrics in radar (max 16)",
+        options=metrics_all,
+        default=default_metrics,
+        help="You can add/remove metrics. If multiple presets are selected, duplicates are removed automatically."
+    )
+    if len(metrics_sel) > 16:
+        st.info(f"You selected {len(metrics_sel)} metrics; only the first 16 will be plotted.")
+
+    players = sorted(df_all["Player"].dropna().unique().tolist()) if "Player" in df_all.columns else []
+    p1 = st.selectbox("Player A", players)
+    p2 = st.selectbox("Player B (optional)", ["—"] + players)
+    color_a = st.color_picker("Color A", "#2A9D8F")
+    color_b = st.color_picker("Color B", "#E76F51")
+    # Optional images for header
+    player_photo_up = st.file_uploader("Player photo (PNG/JPG) — optional", type=["png","jpg","jpeg"], key="photo")
+    crest_up = st.file_uploader("Club crest (PNG/JPG) — optional", type=["png","jpg","jpeg"], key="crest")
+    player_photo_bytes = player_photo_up.read() if player_photo_up else None
+    crest_bytes = crest_up.read() if crest_up else None
+
+
+# Download button for combined PNG
+if p1 and metrics_sel:
+    png_buf = make_radar_bars_png(
+        df_all,
+        p1,
+        None if p2 == "—" else p2,
+        metrics_sel,
+        color_a,
+        color_b,
+    )
+    st.download_button(
+        "⬇️ Download Radar + Barras (PNG)",
+        data=png_buf.getvalue(),
+        file_name="radar_barras.png",
+        mime="image/png",
+    )
+
+# Download button for A4 PDF (PRO)
+if p1 and metrics_sel:
+    pdf_buf = make_radar_bars_pdf_a4_pro(
+        df_all,
+        p1,
+        None if p2 == "—" else p2,
+        metrics_sel,
+        color_a,
+        color_b,
+        player_photo_bytes=player_photo_bytes,
+        crest_bytes=crest_bytes,
+    )
+    st.download_button(
+        "⬇️ Download Radar + Barras (PDF A4)",
+        data=pdf_buf.getvalue(),
+        file_name="radar_barras_A4.pdf",
+        mime="application/pdf",
+    )
+with colB:
+    if p1 and metrics_sel:
+        plot_radar(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b)
+        render_metric_rank_bars(df_all, p1, metrics_sel, None if p2 == "—" else p2)
+
+# ===================== Export =====================
+st.markdown("<div class='section'>Export</div>", unsafe_allow_html=True)
+st.download_button(
+    "Download full CSV",
+    df_all.to_csv(index=False).encode("utf-8"),
+    file_name="composite_metrics_base.csv",
+    mime="text/csv",
+)
+
+
+# --- Revised presets (auto-generated) ---
+PRESETS = {'aerial_duels': ['Aerial Threat',
+                  'Aerial Defence',
+                  'Aerial duels per 90',
+                  'Aerial duels won, %',
+                  'Head goals per 90',
+                  'Involvement',
+                  'Defence'],
+ 'attacking_midfielder': ['Creativity',
+                          'Progression',
+                          'xA per 90',
+                          'Key passes per 90',
+                          'Smart passes per 90',
+                          'Deep completions per 90',
+                          'Work Rate Offensive',
+                          'Offensive Intensity',
+                          'Offensive Explosion'],
+ 'center_back': ['Defence',
+                 'Aerial Defence',
+                 'Aerial duels per 90',
+                 'Aerial duels won, %',
+                 'Defensive duels per 90',
+                 'Defensive duels won, %',
+                 'PAdj Interceptions',
+                 'PAdj Sliding tackles',
+                 'Passes to final third per 90',
+                 'Accurate passes %',
+                 'Work Rate Defensive',
+                 'Defensive Intensity',
+                 'Defensive Explosion'],
+ 'central_midfielder': ['Progression',
+                        'Passing Quality',
+                        'PAdj Interceptions',
+                        'Successful defensive actions per 90',
+                        'Work Rate Defensive',
+                        'Defensive Intensity',
+                        'Passes to final third per 90',
+                        'Progressive runs per 90',
+                        'Deep completions per 90'],
+ 'counter_attack': ['Progression',
+                    'Accelerations per 90',
+                    'Dribbles per 90',
+                    'Successful dribbles, %',
+                    'npxG per 90',
+                    'Finishing',
+                    'Box Threat'],
+ 'crossing': ['Crossing',
+              'Accurate crosses, %',
+              'Deep completed crosses per 90',
+              'xA per 90',
+              'Shot assists per 90',
+              'Creativity',
+              'Passing Quality'],
+ 'defensive_actions': ['Defence',
+                       'Aerial Defence',
+                       'PAdj Interceptions',
+                       'Successful defensive actions per 90',
+                       'Defensive duels won, %',
+                       'Shots blocked per 90',
+                       'Discipline'],
+ 'defensive_midfielder': ['Defence',
+                          'Progression',
+                          'Discipline',
+                          'PAdj Interceptions',
+                          'Successful defensive actions per 90',
+                          'Work Rate Defensive',
+                          'Defensive Intensity',
+                          'Defensive Explosion',
+                          'Defensive duels won, %',
+                          'Aerial duels won, %'],
+ 'forward': ['npxG per 90',
+             'xG per 90',
+             'Shots per 90',
+             'Shots on target, %',
+             'xA per 90',
+             'Key passes per 90',
+             'Touches in box per 90',
+             'Progressive runs per 90',
+             'Deep completions per 90',
+             'Finishing',
+             'Poaching',
+             'Aerial Threat',
+             'Work Rate Offensive',
+             'Offensive Intensity',
+             'Offensive Explosion'],
+ 'full_back': ['Progression',
+               'Creativity',
+               'Passing Quality',
+               'Aerial Defence',
+               'Deep completed crosses per 90',
+               'Progressive runs per 90',
+               'Crosses per 90',
+               'Work Rate Defensive',
+               'Defensive Intensity',
+               'Defensive Explosion'],
+ 'general_summary': ['Involvement', 'Creativity', 'Box Threat', 'Discipline'],
+ 'playmaking_build_up': ['Successful attacking actions per 90',
+                         'Deep completions per 90',
+                         'Key passes per 90',
+                         'Discipline',
+                         'Creativity',
+                         'Passing Quality',
+                         'Progression'],
+ 'shooting': ['npxG per 90',
+              'npxG per Shot',
+              'Finishing',
+              'Goal conversion, %',
+              'Shots on target, %',
+              'G-xG',
+              'Box Threat'],
+ 'striker': ['Involvement',
+             'npxG per 90',
+             'npxG per Shot',
+             'Finishing',
+             'Poaching',
+             'Aerial Threat',
+             'Box Threat',
+             'Touches in box per 90',
+             'Shots per 90',
+             'Shots on target, %'],
+ 'winger': ['Creativity',
+            'Progression',
+            'Dribbles per 90',
+            'Dribbles won, %',
+            'Crosses per 90',
+            'Accurate crosses, %',
+            'Deep completed crosses per 90',
+            'Progressive runs per 90',
+            'xA per 90',
+            'Key passes per 90',
+            'Work Rate Offensive',
+            'Offensive Intensity',
+            'Offensive Explosion',
+            'Successful dribbles, %']}
+
+
+# --- Guarantee fusion of playmaking + build_up into playmaking_build_up (runs after any PRESETS re-definitions) ---
+def _radar_norm_key__pm_bu(s: str) -> str:
+    return (
+        str(s).strip().lower().replace("-", "_").replace(" ", "_")
+    )
+
+def _radar_dedup_keep_order__pm_bu(seq):
+    seen = set(); out = []
+    for x in seq:
+        if x not in seen:
+            out.append(x); seen.add(x)
+    return out
+
+try:
+    _keys_map = { _radar_norm_key__pm_bu(k): k for k in list(PRESETS.keys()) }
+    _k_play  = _keys_map.get("playmaking")
+    _k_build = _keys_map.get("build_up") or _keys_map.get("buildup")
+    if _k_play and _k_build:
+        _merged = _radar_dedup_keep_order__pm_bu(PRESETS[_k_play] + PRESETS[_k_build])
+        _CORE = {"Progression", "Creativity", "Passing Quality", "xG Buildup", "Defence", "Involvement"}
+        _core_cnt = 0; _merged_limited = []
+        for m in _merged:
+            if m in _CORE:
+                if _core_cnt >= 3:
+                    continue
+                _core_cnt += 1
+            _merged_limited.append(m)
+        PRESETS["playmaking_build_up"] = _merged_limited[:10]
+        del PRESETS[_k_play]
+        del PRESETS[_k_build]
+except Exception as _e:
+    # Do not break the app if fusion fails for any reason
+    pass
+
+
+# --- A4 PDF export: horizontal percentiles-by-cohort bars with P50/P80 guides ---
+import numpy as np, pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
+
+
+
+
+
+
+# === PRO PDF (single source of truth) ===
 def _percentile_rank_by_cohort_safe(df: pd.DataFrame, metric: str,
                                     league_col: str = "League", pos_col: str = "Position",
                                     season_col: str | None = None) -> pd.Series:
