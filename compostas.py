@@ -736,7 +736,11 @@ def make_radar_bars_png(df: pd.DataFrame, player_a: str, player_b: str | None, m
 
 # ======= Build an A4 PDF (Radar 3/4 + Bars 1/4) =======
 def make_radar_bars_pdf_a4(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
-                           color_a: str, color_b: str = "#E76F51") -> io.BytesIO:
+                           color_a: str, color_b: str = "#E76F51",
+                           crest_bytes: bytes | None = None,
+                           player_photo_bytes: bytes | None = None,
+                           header_text: str | None = None) -> io.BytesIO:
+
     metrics = (metrics or [])[:16]
     lowers, uppers = _bounds_from_df(df, metrics)
     radar = Radar(metrics, lowers, uppers, num_rings=4)
@@ -762,6 +766,49 @@ def make_radar_bars_pdf_a4(df: pd.DataFrame, player_a: str, player_b: str | None
 
     # A4 portrait in inches
     fig = plt.figure(figsize=(8.27, 11.69), constrained_layout=True)
+
+    # --- Header area (crest, title, player photo) ---
+    try:
+        from PIL import Image
+    except Exception:
+        Image = None
+
+    if crest_bytes is not None or player_photo_bytes is not None or header_text is not None:
+        # Create a thin header band at the top of the figure.
+        # Coordinates are [left, bottom, width, height] in figure fraction.
+        ax_header = fig.add_axes([0.05, 0.905, 0.9, 0.075])
+        ax_header.axis('off')
+
+        # Left: crest
+        if crest_bytes is not None and Image is not None:
+            try:
+                import io as _io
+                crest_img = Image.open(_io.BytesIO(crest_bytes)).convert("RGBA")
+                ax_crest = fig.add_axes([0.05, 0.905, 0.075, 0.075])
+                ax_crest.imshow(crest_img)
+                ax_crest.axis('off')
+            except Exception:
+                pass
+
+        # Right: player photo
+        if player_photo_bytes is not None and Image is not None:
+            try:
+                import io as _io
+                photo_img = Image.open(_io.BytesIO(player_photo_bytes)).convert("RGBA")
+                ax_photo = fig.add_axes([0.875, 0.905, 0.075, 0.075])
+                ax_photo.imshow(photo_img)
+                ax_photo.axis('off')
+            except Exception:
+                pass
+
+        # Center: header text
+        _title_text = header_text if header_text else title
+        try:
+            ax_header.text(0.5, 0.5, _title_text, ha='center', va='center', fontsize=18, weight='bold')
+        except Exception:
+            # If something goes wrong, silently continue; layout below remains intact.
+            pass
+
     gs_main = GridSpec(nrows=2, ncols=1, height_ratios=[2.6, 1], figure=fig)
 
     # ---- Radar area (3/4 of the page) ----
@@ -1330,7 +1377,9 @@ if p1 and metrics_sel:
         None if p2 == "—" else p2,
         metrics_sel,
         color_a,
-        color_b)
+        color_b,
+        crest_bytes=crest_bytes,
+        player_photo_bytes=player_photo_bytes)
     st.download_button(
         "⬇️ Download Radar + Barras (PDF A4)",
         data=pdf_buf.getvalue(),
