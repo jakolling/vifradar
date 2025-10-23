@@ -107,9 +107,15 @@ class Radar:
 
     def draw_param_labels(self, ax=None, fontsize=10):
         import matplotlib.pyplot as plt
+        import numpy as np
         if ax is None:
             ax = plt.gca()
-        ax.set_varlabels(self.params, fontsize=fontsize)
+        # Prefer custom RadarAxes.set_varlabels if available; fallback to set_thetagrids
+        if hasattr(ax, 'set_varlabels'):
+            ax.set_varlabels(self.params, fontsize=fontsize)
+        else:
+            ax.set_thetagrids(np.degrees(self.theta), self.params, fontsize=fontsize)
+
     def draw_range_labels(self, ax=None, fontsize=8):
         import matplotlib.pyplot as plt
         if ax is None:
@@ -182,9 +188,14 @@ class RadarPRO:
 
     def draw_param_labels(self, ax=None, fontsize=10):
         import matplotlib.pyplot as plt
+        import numpy as np
         if ax is None:
             ax = plt.gca()
-        ax.set_varlabels(self.params, fontsize=fontsize)
+        # Prefer custom RadarAxes.set_varlabels if available; fallback to set_thetagrids
+        if hasattr(ax, 'set_varlabels'):
+            ax.set_varlabels(self.params, fontsize=fontsize)
+        else:
+            ax.set_thetagrids(np.degrees(self.theta), self.params, fontsize=fontsize)
 
     def draw_range_labels(self, ax=None, fontsize=8):
         import matplotlib.pyplot as plt
@@ -288,6 +299,7 @@ def make_radar_bars_pdf_a4_pro(
 
 
     # ----- Radar (3/4) -----
+    _ = _radar_factory(len(metrics))
     ax_radar = plt.subplot(gs0[1, 0], projection='radar')
     radar.setup_axis(ax=ax_radar)
     radar.draw_circles(ax=ax_radar, facecolor="#f3f3f3", edgecolor="#c9c9c9", alpha=0.18)
