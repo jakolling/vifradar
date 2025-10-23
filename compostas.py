@@ -737,491 +737,6 @@ def make_radar_bars_png(df: pd.DataFrame, player_a: str, player_b: str | None, m
 
 
 # ======= Build an A4 PDF (Radar 3/4 + Bars 1/4) =======
-def make_radar_bars_pdf_a4(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
-                           color_a: str, color_b: str = "#E76F51") -> io.BytesIO:
-    metrics = (metrics or [])[:16]
-    lowers, uppers = _bounds_from_df(df, metrics)
-    radar = Radar(metrics, lowers, uppers, num_rings=4)
-
-    row_a = df[df["Player"] == player_a].iloc[0]
-    v_a = _values_for_player(row_a, metrics)
-
-    v_b = None
-    title_a = _player_label(row_a)
-    title = title_a
-    age_a = _player_age(row_a)
-    if age_a is not None:
-        title_a = f"{title_a} ({age_a})"
-    title = title_a
-    if player_b:
-        row_b = df[df["Player"] == player_b].iloc[0]
-        v_b = _values_for_player(row_b, metrics)
-        title_b = _player_label(row_b)
-        age_b = _player_age(row_b)
-        if age_b is not None:
-            title_b = f"{title_b} ({age_b})"
-        title = f"{title_a} vs {title_b}"
-
-    # A4 portrait in inches
-    fig = plt.figure(figsize=(8.27, 11.69), constrained_layout=True)
-    gs_main = GridSpec(nrows=2, ncols=1, height_ratios=[2.6, 1], figure=fig)
-
-    # ---- Radar area (3/4 of the page) ----
-    ax_radar = fig.add_subplot(gs_main[0, 0])
-    radar.setup_axis(ax=ax_radar)
-    radar.draw_circles(ax=ax_radar, facecolor="#f3f3f3", edgecolor="#c9c9c9", alpha=0.18)
-    try:
-        radar.spoke(ax=ax_radar, color="#c9c9c9", linestyle="--", alpha=0.18)
-    except Exception:
-        pass
-
-    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": color_a+"33", "edgecolor": color_a, "linewidth": 2})
-    if v_b is not None:
-        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": color_b+"33", "edgecolor": color_b, "linewidth": 2})
-    radar.draw_range_labels(ax=ax_radar, fontsize=9)
-    radar.draw_param_labels(ax=ax_radar, fontsize=10)
-    ax_radar.set_title(title, fontsize=20, weight="bold", pad=18)
-
-    # ---- Bars area (1/4 of the page) ----
-    cols_per_row = 3
-    total_bar_rows = (len(metrics) + cols_per_row - 1) // cols_per_row
-    sub_gs = GridSpecFromSubplotSpec(nrows=total_bar_rows, ncols=cols_per_row, subplot_spec=gs_main[1, 0])
-
-    def _draw_bar(ax, m, player_name):
-        info = _metric_rank_info(df, m, player_name)
-        rk, tot, norm = info["rank"], info["total"], info["norm"]
-        label = f"{m} — {rk}/{tot}" if rk is not None else f"{m} — n/a"
-        ax.barh([0], [norm])
-        ax.set_xlim(0, 1)
-        ax.set_yticks([])
-        ax.set_xticks([0, 0.5, 1])
-        ax.set_xticklabels(["0%","50%","100%"], fontsize=7)
-        ax.set_title(label, fontsize=9, pad=2)
-        for spine in ["top","right","left"]:
-            ax.spines[spine].set_visible(False)
-
-    # Draw bars for player A (and overwrite with player B values if present side-by-side not requested)
-    # Here we'll plot player A only to keep bars legible in a limited height area.
-    for i, m in enumerate(metrics):
-        r = i // cols_per_row
-        c = i % cols_per_row
-        ax = fig.add_subplot(sub_gs[r, c])
-        _draw_bar(ax, m, player_a)
-
-    # Save into an in-memory PDF
-    buf = io.BytesIO()
-    fig.savefig(buf, format="pdf", bbox_inches="tight", pad_inches=0.2)
-    plt.close(fig)
-    buf.seek(0)
-    return buf
-
-
-# ===================== SIDEBAR — Controls =====================
-st.sidebar.header("⚙️ Settings")
-up = st.sidebar.file_uploader("Upload merged Excel (WyScout + SkillCorner)", type=["xlsx"])
-TOPN = st.sidebar.slider("Top N per ranking", 5, 50, 10, 1)
-pos_filter = st.sidebar.text_input("Filter by Position (regex)", value="")
-team_filter = st.sidebar.text_input("Filter by Team (exact match)", value="")
-demo_mode = st.sidebar.checkbox("Demo mode (synthetic data)", value=False)
-min_minutes = st.sidebar.number_input(
-    "Minimum minutes played",
-    min_value=0,
-    value=0,
-    step=90,
-    help="Apenas os Rankings respeitarão este filtro. Radar e percentis usam o dataset completo."
-)
-
-# ===================== SIDEBAR NAVIGATION =====================
-
-# --- Prepare df_all early so all pages can rely on it ---
-df = None
-if demo_mode:
-    st.warning("Demo mode is ON — using a small synthetic sample for all pages.")
-    df_demo = pd.DataFrame({
-        "Player": ["Player A","Player B","Player C"],
-        "Short Name": ["P. A","P. B","P. C"],
-        "Team": ["RFS Riga","RFS Riga","RFS Riga"],
-        "Position": ["FW","MF","DF"],
-        "Minutes played": [900, 850, 780],
-        "xG per 90":[0.35,0.20,0.05],
-        "xA per 90":[0.18,0.25,0.07],
-        "Successful attacking actions per 90":[3.2, 2.1, 1.4],
-        "Conceded goals per 90":[0.4, 0.6, 0.8],
-    })
-    df = compute_composite_metrics(df_demo, DEFAULT_OFF_WEIGHTS)
-elif up is not None:
-    try:
-        df_raw = _load_excel(up)
-        df = compute_composite_metrics(df_raw, DEFAULT_OFF_WEIGHTS)
-    except Exception as e:
-        st.error("Erro ao carregar/calcular métricas.")
-        st.exception(e)
-
-if df is not None and not df.empty:
-    df_all = _fix_npxg_block(df.copy())
-page = st.sidebar.radio("📑 Pages", ["Dashboard", "Metrics Documentation", "Ferramenta de Busca"])
-
-if page == "Metrics Documentation":
-    st.title("📘 Composite Metrics Documentation")
-    st.caption("Explanation of each composite metric and how it is calculated.")
-
-    st.header("Offensive Metrics")
-    st.markdown("""
-**Offensive Production (per 90)**  
-Weighted sum of attacking contributions such as:  
-- Successful attacking actions per 90  
-- xG per 90  
-- xA per 90  
-- Key passes per 90  
-- Deep completions, progressive runs, smart passes, crosses to the goalie box, touches in box, etc.  
-Weights are predefined (higher for xG/xA/key passes, lower for crosses/touches).
-    """)
-
-    st.header("Defensive Metrics")
-    st.markdown("""
-**Defensive Production (per 90)**  
-Sum of:  
-- Successful defensive actions per 90  
-- Defensive duel efficiency *(duels × win%)*  
-- Aerial duel efficiency *(duels × win%)*  
-- Sliding tackles *(possession-adjusted)*  
-- Interceptions *(possession-adjusted)*  
-- Shots blocked per 90  
-    """)
-
-    st.header("Physical + Technical Composites")
-    st.markdown("""
-These normalize offensive and defensive production by physical output:
-
-- **Work Rate Offensive** = *Offensive Production* ÷ *Total Distance (km per 90)*  
-- **Work Rate Defensive** = *Defensive Production* ÷ *Total Distance (km per 90)*  
-
-- **Offensive Intensity** = *Offensive Production* ÷ *(High-intensity + Running Distance, km per 90)*  
-- **Defensive Intensity** = *Defensive Production* ÷ *(High-intensity + Running Distance, km per 90)*  
-
-- **Offensive Explosion** = *Offensive Production* ÷ *Explosive Events* *(HSR, Sprints, Explosive Accelerations)*  
-- **Defensive Explosion** = *Defensive Production* ÷ *Explosive Events*
-    """)
-
-    st.header("Radar Composite Metrics")
-    st.markdown("""
-These are normalized **[0–100]** composites built from z-scores of component stats:
-
-- **xG Buildup**: weighted mix of xA, shot assists, npxG, key passes, deep completions, accurate passing.  
-- **Creativity**: smart passes, through passes, passes to penalty area + their accuracy.  
-- **Progression**: progressive passes, runs, dribbles, accelerations + accuracy of progressive actions.  
-- **Defence**: defensive actions, interceptions, tackles, duels, aerials.  
-- **Involvement**: combined measure of touches, passes, duels, interceptions, box presence.  
-- **Discipline**: negative metric (fouls, yellows, reds).  
-- **Finishing**: conversion rate, non-penalty goals, shots on target, G-xG, npxG/shot.  
-- **Poaching**: balance of shot efficiency, box presence, receiving passes.  
-- **Aerial Threat / Aerial Defence**: heading goals, aerial duel volume & success, interceptions, blocks.  
-- **Passing Quality**: weighted mix of passing volume + accuracy across directions.  
-- **Box Threat**: ratio of npxG per 90 to log(touches in box + 1).
-    """)
-
-    st.info("All metrics are scaled and normalized to ensure fair comparisons across players.")
-    st.stop()
-
-# ===================== MAIN =====================
-if page == "Dashboard":
-    st.title("⚽ Composite Metrics & Radar")
-
-    st.caption("Integrated with composite metrics + physical/technical composites")
-
-
-
-    df = None
-
-    if demo_mode:
-
-        st.warning("Demo mode is ON — synthetic sample loaded.")
-
-        df_demo = pd.DataFrame({
-
-            "Player": ["Player A","Player B","Player C"],
-
-            "Team": ["X","Y","Z"],
-
-            "Position": ["CF","RW","DMF"],
-
-            "Minutes played": [900, 880, 910],
-
-            "Successful attacking actions per 90":[5,7,2],
-
-            "xG per 90":[0.3,0.2,0.1],
-
-            "xA per 90":[0.2,0.4,0.05],
-
-            "Key passes per 90":[1.2,1.5,0.6],
-
-            "Deep completions per 90":[1.0,0.8,0.4],
-
-            "Deep completed crosses per 90":[0.2,0.5,0.0],
-
-            "Progressive runs per 90":[1.1,1.6,0.3],
-
-            "Passes to penalty area per 90":[0.6,0.9,0.2],
-
-            "Smart passes per 90":[0.4,0.5,0.2],
-
-            "Crosses to goalie box per 90":[0.1,0.3,0.0],
-
-            "Touches in box per 90":[3.5,4.0,1.2],
-
-            "xG":[6.0, 4.8, 1.2],
-
-            "Goals":[5,4,1],
-
-            "Penalties taken":[1,0,0],
-
-            "Shots":[20,18,9],
-
-            "Shot assists per 90":[0.5,0.8,0.2],
-
-            "Second assists per 90":[0.1,0.2,0.0],
-
-            "Accurate passes %":[82,78,90],
-
-            "Through passes per 90":[0.3,0.6,0.1],
-
-            "Accurate smart passes, %":[55,52,60],
-
-            "Accurate through passes, %":[42,38,50],
-
-            "Accurate passes to penalty area, %":[40,44,35],
-
-            "Progressive passes per 90":[3.0,3.8,1.2],
-
-            "Accurate progressive passes, %":[68,62,70],
-
-            "Dribbles per 90":[2.0,3.5,0.8],
-
-            "Successful dribbles, %":[55,48,52],
-
-            "Accelerations per 90":[1.2,1.8,0.6],
-
-            "Successful defensive actions per 90":[4.0,2.0,6.0],
-
-            "Defensive duels per 90":[5.0,3.0,8.0],
-
-            "Defensive duels won, %":[60,55,68],
-
-            "Aerial duels per 90":[2.0,1.0,3.0],
-
-            "Aerial duels won, %":[50,45,62],
-
-            "PAdj Sliding tackles":[0.3,0.1,0.7],
-
-            "PAdj Interceptions":[0.8,0.4,1.2],
-
-            "Shots blocked per 90":[0.2,0.1,0.5],
-
-            "Passes per 90":[35,42,55],
-
-            "Received passes per 90":[12,14,10],
-
-            "Touches per 90":[50,48,62],
-
-            "Passes to final third per 90":[2.2,1.9,1.5],
-
-            "Accurate passes to final third, %":[70,64,72],
-
-            "Forward passes per 90":[12,14,10],
-
-            "Accurate forward passes, %":[78,75,82],
-
-            "Long passes per 90":[3.0,2.0,5.0],
-
-            "Accurate long passes, %":[55,48,62],
-
-            "Lateral passes per 90":[7.0,8.0,6.0],
-
-            "Accurate lateral passes, %":[90,88,92],
-
-            "Back passes per 90":[4.0,6.0,5.0],
-
-            "Accurate back passes, %":[94,96,95],
-
-            "Head goals per 90":[0.05,0.02,0.03],
-
-            "Goal conversion, %":[18,15,8],
-
-            "Shots on target, %":[45,42,38],
-
-            "Fouls per 90":[1.5,1.8,2.2],
-
-            "Yellow cards per 90":[0.2,0.15,0.25],
-
-            "Red cards per 90":[0.01,0.0,0.02],
-
-            "Distance P90":[10000,9800,10500],
-
-            "Running Distance P90":[8000,7800,8200],
-
-            "HI Distance P90":[1500,1300,1100],
-
-            "HSR Distance P90":[600,550,500],
-
-            "Sprint Distance P90":[250,220,200],
-
-            "HSR Count P90":[40,35,30],
-
-            "Sprint Count P90":[15,12,10],
-
-            "Explosive Acceleration to HSR Count P90":[3,2,2],
-
-            "Explosive Acceleration to Sprint Count P90":[1,1,1],
-
-        })
-
-        df = compute_composite_metrics(df_demo, DEFAULT_OFF_WEIGHTS)
-if page == "Ferramenta de Busca":
-    # --- Garantia: só continue se df_all existir e estiver pronto ---
-    try:
-        _df_all_ready = hasattr(df_all, "columns") and len(df_all.columns) > 0
-    except NameError:
-        _df_all_ready = False
-    if not _df_all_ready:
-        st.info("Envie o Excel combinado na barra lateral (ou ative o modo Demo) para usar a Ferramenta de Busca.")
-        st.stop()
-
-    st.title("🔎 Ferramenta de Busca")
-    st.caption("Filtre jogadores por **percentis mínimos** em um *position preset*. Os percentis são calculados no **dataset completo** (com inversão de métricas negativas), enquanto o filtro de **minutos** é aplicado ao final.")
-
-    # Seleção de preset e configuração dos limiares
-    preset_name = st.selectbox("Position preset", options=list(PRESETS.keys()))
-    metrics_for_preset = PRESETS[preset_name]
-
-    use_global = st.checkbox("Usar um único percentil mínimo para todas as métricas", value=True)
-    global_min = st.slider("Percentil mínimo (todas as métricas)", 0, 100, 70, help="Aplica-se somente se a opção acima estiver marcada.")
-
-    # Limiares por métrica
-    thresholds = {}
-    if use_global:
-        thresholds = {m: global_min for m in metrics_for_preset}
-    else:
-        st.markdown("#### Limiares por métrica")
-        for m in metrics_for_preset:
-            thresholds[m] = st.slider(f"{m}", 0, 100, 70)
-
-        # Cálculo de percentis por métrica (dataset completo) — rank-based (0–100)
-    def _percentile_rank_series(s: pd.Series, ascending: bool) -> pd.Series:
-        s_num = pd.to_numeric(s, errors="coerce")
-        mask = s_num.notna()
-        n = int(mask.sum())
-        out = pd.Series(np.nan, index=s.index)
-        if n <= 1:
-            return out
-        r = s_num[mask].rank(ascending=ascending, method="average")
-        out.loc[mask] = 100.0 * (n - r) / (n - 1)
-        return out
-
-    percent_cols = {}
-    for m in metrics_for_preset:
-        if m in df_all.columns:
-            ascending = (m in NEGATE_METRICS)  # métricas negativas: menor é melhor
-            percent_cols[m] = _percentile_rank_series(df_all[m], ascending=ascending)
-
-    res = df_all.copy()
-    for m, col in percent_cols.items():
-        res[f"{m} (pct)"] = col
-
-    # Colunas base e lista de colunas de percentil
-    base_cols = [c for c in ["Player", "Short Name", "Team", "Position", "Minutes played", "Minutes"] if c in res.columns]
-    pct_col_names = [f"{m} (pct)" for m in metrics_for_preset if f"{m} (pct)" in res.columns]
-
-
-    # Aplica filtros de minutes, team e posição já existentes
-    if "Minutes played" in res.columns:
-        min_col = "Minutes played"
-    elif "Minutes" in res.columns:
-        min_col = "Minutes"
-    else:
-        min_col = None
-
-    if min_col is not None and isinstance(min_minutes, (int, float)):
-        res = res[pd.to_numeric(res[min_col], errors="coerce").fillna(0) >= float(min_minutes)]
-
-    if team_filter:
-        if "Team" in res.columns:
-            res = res[res["Team"].astype(str) == team_filter]
-
-    if pos_filter:
-        if "Position" in res.columns:
-            res = res[res["Position"].astype(str).str.contains(pos_filter)]
-
-    # Filtro por percentis mínimos (todas as métricas do preset)
-    mask = pd.Series(True, index=res.index)
-    for m in metrics_for_preset:
-        pct_col = f"{m} (pct)"
-        if pct_col in res.columns:
-            mask &= (pd.to_numeric(res[pct_col], errors="coerce") >= thresholds.get(m, 0))
-        else:
-            # Se a métrica não existir, o jogador falha no critério
-            mask &= False
-    res = res[mask]
-
-    # Ordenação por média dos percentis do preset (opcional)
-    pct_cols = [f"{m} (pct)" for m in metrics_for_preset if f"{m} (pct)" in res.columns]
-    if pct_cols:
-        res["Media pct (preset)"] = res[pct_cols].mean(axis=1)
-        res = res.sort_values("Media pct (preset)", ascending=False)
-
-    # Mostra resultados
-    show_cols = base_cols + pct_col_names
-    show_cols = [c for c in show_cols if c in res.columns]
-    st.markdown(f"**Jogadores encontrados:** {len(res)}")
-    if len(show_cols) == 0:
-        st.info("Nenhuma coluna válida para exibir.")
-    else:
-        st.dataframe(res[show_cols].reset_index(drop=True))
-
-    # Download
-    csv_bytes = res[show_cols].to_csv(index=False).encode("utf-8") if show_cols else b""
-    st.download_button("Baixar resultados (CSV)", data=csv_bytes, file_name="busca_percentis.csv", mime="text/csv")
-
-else:
-    if up is None:
-        st.info("Upload your merged Excel on the left panel to begin (or enable Demo mode).")
-    else:
-        with st.spinner("Loading data and computing metrics…"):
-            try:
-                df_raw = _load_excel(up)
-                df = compute_composite_metrics(df_raw, DEFAULT_OFF_WEIGHTS)
-            except Exception as e:
-                st.error("There was an error while computing metrics.")
-                st.exception(e)
-
-if df is None or df.empty:
-    st.stop()
-
-# Enforce presence of Minutes played
-if "Minutes played" not in df.columns:
-    st.error("Arquivo não possui a coluna 'Minutes played'. Renomeie a coluna para exatamente 'Minutes played' e reenvié.")
-    st.stop()
-
-# Keep global (df_all) for all calculations; df_view only controls Rankings listing
-df_all = df.copy()
-df_all = _fix_npxg_block(df_all)
-
-df_view = df_all[df_all["Minutes played"].fillna(0) >= int(min_minutes)].copy()
-st.caption(
-    f"Filtro de minutos afeta apenas os **Rankings** (mostra {df_view.shape[0]} de {df_all.shape[0]} jogadores). "
-    "Cálculos de radar e percentis permanecem sobre o dataset completo."
-)
-
-# ===================== KPIs =====================
-st.subheader("Overview")
-col1, col2, col3, col4 = st.columns(4)
-with col1: st.markdown(f"<div class='metric-card'><div class='subtle small'>Players</div><h3>{df_all.shape[0]}</h3></div>", unsafe_allow_html=True)
-with col2: st.markdown(f"<div class='metric-card'><div class='subtle small'>Teams</div><h3>{df_all['Team'].nunique() if 'Team' in df_all.columns else '—'}</h3></div>", unsafe_allow_html=True)
-with col3: st.markdown(f"<div class='metric-card'><div class='subtle small'>Positions</div><h3>{df_all['Position'].nunique() if 'Position' in df_all.columns else '—'}</h3></div>", unsafe_allow_html=True)
-with col4: st.markdown(f"<div class='metric-card'><div class='subtle small'>Columns</div><h3>{df_all.shape[1]}</h3></div>", unsafe_allow_html=True)
-
-# ===================== Rankings =====================
-st.markdown("<div class='section'>Rankings</div>", unsafe_allow_html=True)
-
 def _leaderboard(metric):
     d = df_view.copy()
     if d.empty:
@@ -1311,411 +826,6 @@ with colA:
 
 
 # === PRO PDF (definition placed before usage) ===
-def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
-                               color_a: str, color_b: str = "#E76F51",
-                               player_photo_bytes: bytes | None = None,
-                               crest_bytes: bytes | None = None) -> io.BytesIO:
-    """
-    PRO layout (v2):
-      - Cabeçalho com *espaços reservados* (quadrados brancos) para FOTO (esq.) e ESCUDO (dir.).
-      - Radar MAIOR (mais espaço vertical).
-      - Barras MENORES e mais "filamentadas" (altura reduzida).
-    """
-    import matplotlib.pyplot as plt
-    from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
-    from matplotlib.patches import FancyBboxPatch
-    from PIL import Image
-    import io
-    from datetime import datetime
-
-    metrics = (metrics or [])[:16]
-
-    # --- Dados dos jogadores
-    row_a = df[df["Player"] == player_a].iloc[0]
-    v_a = _values_for_player(row_a, metrics)
-    title_a = _player_label(row_a)
-    a_age = _player_age(row_a)
-    if a_age is not None:
-        title_a = f"{title_a} ({a_age})"
-
-    v_b = None
-    if player_b:
-        row_b = df[df["Player"] == player_b].iloc[0]
-        v_b = _values_for_player(row_b, metrics)
-        title_b = _player_label(row_b)
-        b_age = _player_age(row_b)
-        if b_age is not None:
-            title_b = f"{title_b} ({b_age})"
-        title = f"{title_a}  vs  {title_b}"
-    else:
-        title = title_a
-
-    lowers, uppers = _bounds_from_df(df, metrics)
-    radar = Radar(metrics, lowers, uppers, num_rings=4)
-
-    # --- Figura A4
-    fig = plt.figure(figsize=(8.27, 11.69))
-    gs_page = GridSpec(nrows=12, ncols=12, figure=fig)
-
-    # ======= HEADER =======
-    ax_header = fig.add_subplot(gs_page[0:2, :]); ax_header.axis("off")
-    band = FancyBboxPatch((0.01, 0.01), 0.98, 0.98, boxstyle="round,pad=0.02,rounding_size=0.02",
-                          transform=ax_header.transAxes, linewidth=0, facecolor="#0f172a", alpha=0.98)
-    ax_header.add_patch(band)
-
-    # Slots do cabeçalho
-    ax_photo = fig.add_subplot(gs_page[0:2, 0:2]); ax_photo.axis("off")
-    ax_title = fig.add_subplot(gs_page[0:2, 3:9]); ax_title.axis("off")
-    ax_crest = fig.add_subplot(gs_page[0:2, 10:12]); ax_crest.axis("off")
-
-    # Espaços reservados (quadrados brancos) - sempre renderizados, com leve borda cinza
-
-    # Se imagens forem fornecidas, desenhamos POR CIMA do quadrado branco, centralizadas
-    def _draw_image_center(ax, img_bytes):
-        if not img_bytes:
-            return
-        try:
-            im = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
-            ax.imshow(im, extent=(0.18, 0.82, 0.18, 0.82), zorder=3)
-        except Exception:
-            pass  # não quebra
-
-    _draw_image_center(ax_photo, player_photo_bytes)
-    _draw_image_center(ax_crest, crest_bytes)
-
-    # Título (apenas no centro; nada nos slots de foto/escudo)
-    def _wrap_title(txt: str, max_chars_line: int = 36):
-        # simple wrap to two lines max
-        txt = str(txt or "").strip()
-        if len(txt) <= max_chars_line:
-            return [txt], 16
-        # split at spaces
-        words = txt.split()
-        line1 = []
-        while words and len(" ".join(line1 + [words[0]])) <= max_chars_line:
-            line1.append(words.pop(0))
-        line2 = " ".join(words)
-        # reduce fontsize for long titles
-        return [" ".join(line1), line2], 14
-
-    _lines, _fs = _wrap_title(title)
-    if len(_lines) == 1:
-        ax_title.text(0.5, 0.62, _lines[0], ha="center", va="center",
-                      fontsize=_fs, weight="bold", color="white", transform=ax_title.transAxes)
-    else:
-        ax_title.text(0.5, 0.70, _lines[0], ha="center", va="center",
-                      fontsize=_fs, weight="bold", color="white", transform=ax_title.transAxes)
-        ax_title.text(0.5, 0.50, _lines[1], ha="center", va="center",
-                      fontsize=_fs, weight="bold", color="white", transform=ax_title.transAxes)
-    ax_title.text(0.5, 0.28, f"Relatório gerado em {datetime.now().strftime('%d %b %Y')}",
-                  ha="center", va="center", fontsize=9, color="#cbd5e1", transform=ax_title.transAxes)
-
-    # ======= RADAR (maior) =======
-    # Aumentamos de [2:8] para [2:9] -> mais uma linha vertical para o radar
-    ax_radar = fig.add_subplot(gs_page[2:9, 0:12])  # eixo cartesiano para mplsoccer.Radar
-    radar.setup_axis(ax=ax_radar)
-    # fundo leve
-    ax_radar.set_facecolor("#f8fafc")
-    # anéis e parâmetros
-    try:
-        radar.draw_circles(ax=ax_radar, facecolor="#f8fafc", edgecolor="#cbd5e1", alpha=0.35)
-    except Exception:
-        pass
-    try:
-        radar.spoke(ax=ax_radar, color="#cbd5e1", linestyle="--", alpha=0.25)
-    except Exception:
-        pass
-    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": color_a, "edgecolor": color_a, "linewidth": 2})
-    if v_b is not None:
-        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": color_b, "edgecolor": color_b, "linewidth": 2})
-    radar.draw_range_labels(ax=ax_radar, fontsize=9)
-    radar.draw_param_labels(ax=ax_radar, fontsize=10)
-
-    # ======= BARRAS (menores/achatadas) =======
-    # Área de barras reduzida: [9:12] (antes era [8:12])
-    cols_per_row = 3
-    total_rows = min((len(metrics) + cols_per_row - 1) // cols_per_row, 3)  # limite 3 linhas
-    sub_gs = GridSpecFromSubplotSpec(nrows=total_rows, ncols=cols_per_row,
-                                     subplot_spec=gs_page[9:12, 0:12], wspace=0.16, hspace=0.12)
-
-    def _draw_bar_slim(ax, m, player_name, row_idx, total_rows_in_grid):
-        info = _metric_rank_info(df, m, player_name)
-        rk, tot, norm = info.get("rank"), info.get("total"), info.get("norm")
-        label = f"{m} — {rk}/{tot}" if rk is not None else f"{m}"
-        ax.barh([0], [norm if norm is not None else 0], height=0.12)
-        ax.set_xlim(0, 1)
-        ax.set_ylim(-0.6, 0.6)
-        ax.set_yticks([])
-        # ticks only on bottom row for cleanliness
-        if row_idx == (total_rows_in_grid - 1):
-            ax.set_xticks([0, 0.5, 1])
-            ax.set_xticklabels(["0%","50%","100%"], fontsize=7)
-            ax.tick_params(axis="x", pad=0)
-        else:
-            ax.set_xticks([0, 0.5, 1])
-            ax.set_xticklabels([])
-        # label as text (avoids awkward wrapping of titles)
-        ax.text(0.0, 0.5, label, transform=ax.transAxes, ha="left", va="center", fontsize=8,
-       bbox={"facecolor": "white", "edgecolor": "none", "pad": 0.2}, zorder=5)
-        for spine in ["top","right","left"]:
-            ax.spines[spine].set_visible(False)
-
-    for i, m in enumerate(metrics[:cols_per_row * total_rows]):
-        r = i // cols_per_row
-        c = i % cols_per_row
-        ax = fig.add_subplot(sub_gs[r, c])
-        _draw_bar_slim(ax, m, player_a, r, total_rows)
-
-    # ======= EXPORT (multi-page if needed) =======
-    from matplotlib.backends.backend_pdf import PdfPages
-
-    # Compute capacity for first page
-    first_capacity = cols_per_row * total_rows
-    remaining_metrics = metrics[first_capacity:]
-
-    buf = io.BytesIO()
-    with PdfPages(buf) as pdf:
-        pdf.savefig(fig, bbox_inches="tight", dpi=300)
-        plt.close(fig)
-
-        # Add compact bar-only pages for remaining metrics (if any)
-        if remaining_metrics:
-            per_page_rows = 12  # 10 rows x 3 cols = 30 metrics per extra page
-            per_page_capacity = cols_per_row * per_page_rows
-
-            def _make_bars_page(chunk, title_suffix="(cont.)"):
-                # A4, no header; full-page compact grid for bars
-                from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
-                fig2 = plt.figure(figsize=(8.27, 11.69))
-                gs2  = GridSpec(nrows=12, ncols=12, figure=fig2)
-                # Bars grid fills the page (margins handled by bbox_inches)
-                per_rows = per_page_rows  # defined outside (e.g., 12)
-                sub = GridSpecFromSubplotSpec(nrows=per_rows, ncols=cols_per_row,
-                                              subplot_spec=gs2[0:12, 0:12], wspace=0.14, hspace=0.10)
-                for i, m in enumerate(chunk):
-                    r = i // cols_per_row
-                    c = i % cols_per_row
-                    axb = fig2.add_subplot(sub[r, c])
-                    info = _metric_rank_info(df, m, player_a)
-                    rk, tot, norm = info.get("rank"), info.get("total"), info.get("norm")
-                    label = f"{m} — {rk}/{tot}" if rk is not None else f"{m}"
-                    axb.barh([0], [norm if norm is not None else 0], height=0.12, zorder=1)
-                    axb.set_xlim(0, 1)
-                    axb.set_ylim(-0.6, 0.6)
-                    axb.set_yticks([])
-                    # ticks only for bottom row
-                    if r == (per_rows - 1):
-                        axb.set_xticks([0, 0.5, 1])
-                        axb.set_xticklabels(["0%","50%","100%"], fontsize=7)
-                        axb.tick_params(axis="x", pad=0)
-                    else:
-                        axb.set_xticks([0, 0.5, 1])
-                        axb.set_xticklabels([])
-                    # label centered on bar, drawn after bar with white bbox to avoid overlap
-                    axb.text(0.0, 0.5, label, transform=axb.transAxes, ha="left", va="center", fontsize=8,
-                             bbox={"facecolor": "white", "edgecolor": "none", "pad": 0.2}, zorder=5)
-                    for spine in ["top","right","left"]:
-                        axb.spines[spine].set_visible(False)
-                return fig2
-
-            # Paginate remaining metrics
-            for page_idx in range(0, len(remaining_metrics), per_page_capacity):
-                chunk = remaining_metrics[page_idx: page_idx + per_page_capacity]
-                fig_extra = _make_bars_page(chunk, title_suffix=f"(barras – pág. {1 + page_idx // per_page_capacity + 1})")
-                pdf.savefig(fig_extra, bbox_inches="tight", dpi=300)
-                plt.close(fig_extra)
-
-    buf.seek(0)
-    return buf
-
-
-# Download button for combined PNG
-if p1 and metrics_sel:
-    png_buf = make_radar_bars_png(
-        df_all,
-        p1,
-        None if p2 == "—" else p2,
-        metrics_sel,
-        color_a,
-        color_b,
-    )
-    st.download_button(
-        "⬇️ Download Radar + Barras (PNG)",
-        data=png_buf.getvalue(),
-        file_name="radar_barras.png",
-        mime="image/png",
-    )
-
-# Download button for A4 PDF (PRO)
-if p1 and metrics_sel:
-    pdf_buf = make_radar_bars_pdf_a4_pro(
-        df_all,
-        p1,
-        None if p2 == "—" else p2,
-        metrics_sel,
-        color_a,
-        color_b,
-        player_photo_bytes=player_photo_bytes,
-        crest_bytes=crest_bytes,
-    )
-    st.download_button(
-        "⬇️ Download Radar + Barras (PDF A4)",
-        data=pdf_buf.getvalue(),
-        file_name="radar_barras_A4.pdf",
-        mime="application/pdf",
-    )
-with colB:
-    if p1 and metrics_sel:
-        plot_radar(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b)
-        render_metric_rank_bars(df_all, p1, metrics_sel, None if p2 == "—" else p2)
-
-# ===================== Export =====================
-st.markdown("<div class='section'>Export</div>", unsafe_allow_html=True)
-st.download_button(
-    "Download full CSV",
-    df_all.to_csv(index=False).encode("utf-8"),
-    file_name="composite_metrics_base.csv",
-    mime="text/csv",
-)
-
-
-# --- Revised presets (auto-generated) ---
-PRESETS = {'aerial_duels': ['Aerial Threat',
-                  'Aerial Defence',
-                  'Aerial duels per 90',
-                  'Aerial duels won, %',
-                  'Head goals per 90',
-                  'Involvement',
-                  'Defence'],
- 'attacking_midfielder': ['Creativity',
-                          'Progression',
-                          'xA per 90',
-                          'Key passes per 90',
-                          'Smart passes per 90',
-                          'Deep completions per 90',
-                          'Work Rate Offensive',
-                          'Offensive Intensity',
-                          'Offensive Explosion'],
- 'center_back': ['Defence',
-                 'Aerial Defence',
-                 'Aerial duels per 90',
-                 'Aerial duels won, %',
-                 'Defensive duels per 90',
-                 'Defensive duels won, %',
-                 'PAdj Interceptions',
-                 'PAdj Sliding tackles',
-                 'Passes to final third per 90',
-                 'Accurate passes %',
-                 'Work Rate Defensive',
-                 'Defensive Intensity',
-                 'Defensive Explosion'],
- 'central_midfielder': ['Progression',
-                        'Passing Quality',
-                        'PAdj Interceptions',
-                        'Successful defensive actions per 90',
-                        'Work Rate Defensive',
-                        'Defensive Intensity',
-                        'Passes to final third per 90',
-                        'Progressive runs per 90',
-                        'Deep completions per 90'],
- 'counter_attack': ['Progression',
-                    'Accelerations per 90',
-                    'Dribbles per 90',
-                    'Successful dribbles, %',
-                    'npxG per 90',
-                    'Finishing',
-                    'Box Threat'],
- 'crossing': ['Crossing',
-              'Accurate crosses, %',
-              'Deep completed crosses per 90',
-              'xA per 90',
-              'Shot assists per 90',
-              'Creativity',
-              'Passing Quality'],
- 'defensive_actions': ['Defence',
-                       'Aerial Defence',
-                       'PAdj Interceptions',
-                       'Successful defensive actions per 90',
-                       'Defensive duels won, %',
-                       'Shots blocked per 90',
-                       'Discipline'],
- 'defensive_midfielder': ['Defence',
-                          'Progression',
-                          'Discipline',
-                          'PAdj Interceptions',
-                          'Successful defensive actions per 90',
-                          'Work Rate Defensive',
-                          'Defensive Intensity',
-                          'Defensive Explosion',
-                          'Defensive duels won, %',
-                          'Aerial duels won, %'],
- 'forward': ['npxG per 90',
-             'xG per 90',
-             'Shots per 90',
-             'Shots on target, %',
-             'xA per 90',
-             'Key passes per 90',
-             'Touches in box per 90',
-             'Progressive runs per 90',
-             'Deep completions per 90',
-             'Finishing',
-             'Poaching',
-             'Aerial Threat',
-             'Work Rate Offensive',
-             'Offensive Intensity',
-             'Offensive Explosion'],
- 'full_back': ['Progression',
-               'Creativity',
-               'Passing Quality',
-               'Aerial Defence',
-               'Deep completed crosses per 90',
-               'Progressive runs per 90',
-               'Crosses per 90',
-               'Work Rate Defensive',
-               'Defensive Intensity',
-               'Defensive Explosion'],
- 'general_summary': ['Involvement', 'Creativity', 'Box Threat', 'Discipline'],
- 'playmaking_build_up': ['Successful attacking actions per 90',
-                         'Deep completions per 90',
-                         'Key passes per 90',
-                         'Discipline',
-                         'Creativity',
-                         'Passing Quality',
-                         'Progression'],
- 'shooting': ['npxG per 90',
-              'npxG per Shot',
-              'Finishing',
-              'Goal conversion, %',
-              'Shots on target, %',
-              'G-xG',
-              'Box Threat'],
- 'striker': ['Involvement',
-             'npxG per 90',
-             'npxG per Shot',
-             'Finishing',
-             'Poaching',
-             'Aerial Threat',
-             'Box Threat',
-             'Touches in box per 90',
-             'Shots per 90',
-             'Shots on target, %'],
- 'winger': ['Creativity',
-            'Progression',
-            'Dribbles per 90',
-            'Dribbles won, %',
-            'Crosses per 90',
-            'Accurate crosses, %',
-            'Deep completed crosses per 90',
-            'Progressive runs per 90',
-            'xA per 90',
-            'Key passes per 90',
-            'Work Rate Offensive',
-            'Offensive Intensity',
-            'Offensive Explosion',
-            'Successful dribbles, %']}
-
-
-# --- Guarantee fusion of playmaking + build_up into playmaking_build_up (runs after any PRESETS re-definitions) ---
 def _radar_norm_key__pm_bu(s: str) -> str:
     return (
         str(s).strip().lower().replace("-", "_").replace(" ", "_")
@@ -1773,6 +883,14 @@ def _percentile_rank_by_cohort_safe(df: pd.DataFrame, metric: str,
         return out
 
     grp_keys = df.loc[mask, group_cols].apply(tuple, axis=1)
+    def _pct_rank(x):
+        n = x.shape[0]
+        if n <= 1: return pd.Series(np.nan, index=x.index)
+        r = x.rank(ascending=False, method="average")
+        return 100.0 * (n - r) / (n - 1)
+    out.loc[mask] = s[mask].groupby(grp_keys).transform(_pct_rank)
+    return out
+
 def _choose_default_blocks(df: pd.DataFrame) -> dict:
     blocks = {}
     cand_off = [c for c in [
@@ -1901,3 +1019,186 @@ def export_player_pdf_a4_bars(df: pd.DataFrame, player_name: str,
 
 
 # ===== Enhanced A4 PDF with professional header and optional images =====
+def make_radar_bars_pdf_a4(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
+                           color_a: str, color_b: str = "#E76F51",
+                           player_photo_bytes: bytes | None = None,
+                           crest_bytes: bytes | None = None) -> io.BytesIO:
+    """
+    Gera um PDF A4 com layout profissional:
+      - Header com foto (esq), título (centro) e escudo (dir)
+      - Radar amplo
+      - Barras de ranking em grid
+    Se foto/escudo não forem fornecidos, o header sai limpo (sem placeholders).
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
+    from matplotlib.patches import FancyBboxPatch, Circle
+    from PIL import Image
+    import numpy as np
+    import io
+    from datetime import datetime
+
+    metrics = (metrics or [])[:16]
+
+    # --- Dados
+    row_a = df[df["Player"] == player_a].iloc[0]
+    v_a = _values_for_player(row_a, metrics)
+    title_a = str(row_a.get("Player", player_a))
+    age_a = row_a.get("Age", row_a.get("BirthDate"))
+    try:
+        from datetime import date
+        def _parse_age(v):
+            if v is None: return None
+            if isinstance(v, (int,float)): return int(v) if v>0 else None
+            from datetime import datetime
+            s=str(v)
+            if s.isdigit(): return int(s)
+            try:
+                b=datetime.strptime(s, "%Y-%m-%d").date()
+                today=date.today()
+                return today.year-b.year-((today.month,today.day)<(b.month,b.day))
+            except Exception:
+                return None
+        aa = _parse_age(age_a)
+        if aa: title_a += f" ({aa})"
+    except Exception:
+        pass
+
+    v_b=None; title_b=None
+    if player_b:
+        row_b = df[df["Player"] == player_b].iloc[0]
+        v_b = _values_for_player(row_b, metrics)
+        title_b = str(row_b.get("Player", player_b))
+        age_b = row_b.get("Age", row_b.get("BirthDate"))
+        bb = None
+        try:
+            bb = _parse_age(age_b)
+        except Exception:
+            bb=None
+        if bb: title_b += f" ({bb})"
+
+    lowers, uppers = _bounds_from_df(df, metrics)
+    radar = Radar(metrics, lowers, uppers, num_rings=4)
+
+    # --- Figura A4
+    fig = plt.figure(figsize=(8.27, 11.69))
+    gs_page = GridSpec(nrows=12, ncols=12, figure=fig)
+
+    # ===================== HEADER =====================
+    ax_header = fig.add_subplot(gs_page[0:2, :]); ax_header.axis("off")
+    pad = 0.01
+    box = FancyBboxPatch((pad, pad), 1 - 2*pad, 1 - 2*pad,
+                         boxstyle="round,pad=0.02,rounding_size=0.02",
+                         transform=ax_header.transAxes, linewidth=0,
+                         facecolor="#0f172a", alpha=0.98)
+    ax_header.add_patch(box)
+
+    # Slots header
+    ax_photo = fig.add_subplot(gs_page[0:2, 0:2]); ax_photo.axis("off")
+    ax_title = fig.add_subplot(gs_page[0:2, 2:10]); ax_title.axis("off")
+    ax_crest = fig.add_subplot(gs_page[0:2, 10:12]); ax_crest.axis("off")
+
+    # Foto circular (se fornecida)
+    if player_photo_bytes:
+        circ = Circle((0.5, 0.5), radius=0.42, transform=ax_photo.transAxes,
+                      facecolor="#0f172a", edgecolor="#e5e7eb", linewidth=1.0)
+        ax_photo.add_patch(circ)
+        try:
+            im = Image.open(io.BytesIO(player_photo_bytes)).convert("RGBA")
+            ax_photo.imshow(im, extent=(0.08, 0.92, 0.08, 0.92), zorder=3)
+        except Exception:
+            pass
+
+    # Escudo (se fornecido)
+    if crest_bytes:
+        rect = FancyBboxPatch((0.08, 0.08), 0.84, 0.84,
+                              boxstyle="round,pad=0.02,rounding_size=0.03",
+                              transform=ax_crest.transAxes, linewidth=1.0,
+                              facecolor="#0b1220", edgecolor="#1f2937")
+        ax_crest.add_patch(rect)
+        try:
+            im = Image.open(io.BytesIO(crest_bytes)).convert("RGBA")
+            ax_crest.imshow(im, extent=(0.12, 0.88, 0.12, 0.88), zorder=3)
+        except Exception:
+            pass
+
+    # Títulos
+    title = title_a if not title_b else f"{title_a}  vs  {title_b}"
+    ax_title.text(0.5, 0.62, title, ha="center", va="center",
+                  fontsize=16, weight="bold", color="white", transform=ax_title.transAxes)
+    ax_title.text(0.5, 0.30, f"Relatório gerado em {datetime.now().strftime('%d %b %Y')}",
+                  ha="center", va="center", fontsize=9, color="#cbd5e1", transform=ax_title.transAxes)
+
+    # ===================== RADAR =====================
+    ax_radar = fig.add_subplot(gs_page[2:8, 0:12])
+    radar.setup_axis(ax=ax_radar)
+    radar.draw_circles(ax=ax_radar, facecolor="#f8fafc", edgecolor="#cbd5e1", alpha=0.35)
+    try:
+        radar.spoke(ax=ax_radar, color="#cbd5e1", linestyle="--", alpha=0.25)
+    except Exception:
+        pass
+    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": color_a, "edgecolor": color_a, "linewidth": 2})
+    if v_b is not None:
+        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": color_b, "edgecolor": color_b, "linewidth": 2})
+    radar.draw_range_labels(ax=ax_radar, fontsize=9)
+    radar.draw_param_labels(ax=ax_radar, fontsize=10)
+
+    # ===================== BARRAS =====================
+    cols_per_row = 3
+    total_rows = min((len(metrics) + cols_per_row - 1) // cols_per_row, 4)
+    sub_gs = GridSpecFromSubplotSpec(nrows=total_rows, ncols=cols_per_row,
+                                     subplot_spec=gs_page[8:12, 0:12], wspace=0.35, hspace=0.55)
+
+    def _draw_bar(ax, m, player_name):
+        info = _metric_rank_info(df, m, player_name)
+        rk, tot, norm = info.get("rank"), info.get("total"), info.get("norm")
+        label = f"{m} — {rk}/{tot}" if rk is not None else f"{m}"
+        ax.barh([0], [norm if norm is not None else 0])
+        ax.set_xlim(0, 1)
+        ax.set_yticks([])
+        ax.set_xticks([0, 0.5, 1])
+        ax.set_xticklabels(["0%","50%","100%"], fontsize=7)
+        ax.set_title(label, fontsize=9, pad=2)
+        for spine in ["top","right","left"]:
+            ax.spines[spine].set_visible(False)
+
+    for i, m in enumerate(metrics[:cols_per_row * total_rows]):
+        r = i // cols_per_row
+        c = i % cols_per_row
+        ax = fig.add_subplot(sub_gs[r, c])
+        _draw_bar(ax, m, player_a)
+
+    # ===================== EXPORT =====================
+    buf = io.BytesIO()
+    fig.savefig(buf, format="pdf", dpi=300, bbox_inches="tight", pad_inches=0.25)
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
+
+
+# ===== PDF hotfix: compatibilidade de assinatura =====
+# Permite chamar make_radar_bars_pdf_a4 com kwargs (player_photo_bytes, crest_bytes)
+# mesmo que a função original não os aceite (evita TypeError).
+try:
+    from inspect import signature
+    _sig = signature(make_radar_bars_pdf_a4)
+    if "player_photo_bytes" not in _sig.parameters or "crest_bytes" not in _sig.parameters:
+        _old_pdf_func = make_radar_bars_pdf_a4
+
+        def make_radar_bars_pdf_a4(
+            df, player_a, player_b, metrics, color_a, color_b,
+            player_photo_bytes=None, crest_bytes=None
+        ):
+            # Chama a versão antiga ignorando os novos kwargs
+            return _old_pdf_func(df, player_a, player_b, metrics, color_a, color_b)
+except Exception:
+    # Se algo falhar no hotfix, não impede o app de rodar
+    pass
+# ===== fim do hotfix =====
+
+
+
+# ====== PRO PDF LAYOUT (forced new header + grid) ======
+
+# ====== END PRO PDF LAYOUT ======
