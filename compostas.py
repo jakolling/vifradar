@@ -1884,13 +1884,13 @@ def export_player_pdf_a4_bars(df: pd.DataFrame, player_name: str,
     if not plot_blocks:
         raise ValueError("No metrics available to plot for the selected player/cohort.")
 
-    a4_landscape = (11.69, 8.27)
+    a4_portrait = (8.27, 11.69)
     with PdfPages(output_path) as pdf:
         per_page = 3
         for page_idx in range(0, len(plot_blocks), per_page):
             page_blocks = plot_blocks[page_idx:page_idx+per_page]
 
-            fig = plt.figure(figsize=a4_landscape)
+            fig = plt.figure(figsize=a4_portrait)
             fig.suptitle(
                 f"{player_name} — {pos or ''} — {league or ''}  |  Percentis por coorte"
                 + (f"  |  Minutos: {int(minutes)}" if not np.isnan(minutes) else ""),
