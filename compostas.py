@@ -1576,27 +1576,40 @@ def _choose_default_blocks(df: pd.DataFrame) -> dict:
 
 
 
-# ==== Re-define make_radar_bars_docx (compatível e robusta) ====
-def make_radar_bars_docx(df, player_a, player_b=None, metrics=None,
-                         color_a="#2A9D8F", color_b="#E76F51",
-                         title=None, **kwargs) -> io.BytesIO:
+
+# ==== Export: DOCX (radar + barras) ====
+import io
+from datetime import datetime
+
+def make_radar_bars_docx(
+    df,
+    player_a,
+    player_b=None,
+    metrics=None,
+    color_a="#2A9D8F",
+    color_b="#E76F51",
+    title=None,
+    crest_bytes=None,
+    **kwargs
+) -> io.BytesIO:
     """
-    Gera um .docx contendo o PNG combinado (radar + barras).
-    Aceita parâmetros opcionais via **kwargs, incluindo:
-      - crest_bytes: bytes de imagem para brasão/logotipo
-    Requer: python-docx
+    Gera um .docx contendo:
+      - Título
+      - Timestamp
+      - (Opcional) brasão/escudo (crest_bytes)
+      - Imagem combinada Radar + Barras (gerada por make_radar_bars_png)
+    Requer: python-docx (pip install python-docx)
     """
     try:
         from docx import Document
         from docx.shared import Inches
         from docx.enum.text import WD_ALIGN_PARAGRAPH
     except Exception as e:
-        raise RuntimeError("Instale 'python-docx' (pip install python-docx)") from e
+        raise RuntimeError("Instale o pacote 'python-docx' (pip install python-docx).") from e
 
-    # Parâmetros opcionais
-    crest_bytes = kwargs.get("crest_bytes")
-
-    # Gera PNG combinado reaproveitando a função existente
+    # Gera o PNG combinado a partir da função já existente no app
+    if 'make_radar_bars_png' not in globals():
+        raise RuntimeError("Função make_radar_bars_png não encontrada no app. Ajuste o nome se necessário.")
     png_buf = make_radar_bars_png(
         df,
         player_a,
@@ -1608,7 +1621,7 @@ def make_radar_bars_docx(df, player_a, player_b=None, metrics=None,
 
     # Monta o DOCX
     doc = Document()
-    usable_width_inches = 6.5  # largura útil aproximada com margens padrão
+    usable_width_inches = 6.5
 
     if title is None:
         title = f"{player_a} vs {player_b}" if player_b else f"{player_a}"
@@ -1625,19 +1638,19 @@ def make_radar_bars_docx(df, player_a, player_b=None, metrics=None,
     except Exception:
         pass
 
-    # Brasão opcional
+    # Brasão/escudo opcional
     if crest_bytes:
         try:
             crest_stream = io.BytesIO(crest_bytes)
             doc.add_picture(crest_stream, width=Inches(1.0))
         except Exception:
-            # Não falhar se a imagem vier inválida
-            pass
+            pass  # não quebra se imagem inválida
 
     # Imagem principal
     img_stream = io.BytesIO(png_buf.getvalue())
     doc.add_picture(img_stream, width=Inches(usable_width_inches))
 
+    # Exporta
     out = io.BytesIO()
     doc.save(out)
     out.seek(0)
