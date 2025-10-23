@@ -1,3 +1,4 @@
+# === VIFRADAR READY BUILD 2025-10-23T18:41:21.046022Z ===
 from __future__ import annotations
 
 import io
