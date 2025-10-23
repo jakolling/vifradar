@@ -7,6 +7,8 @@ import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
+from matplotlib.patches import Patch
+from matplotlib.ticker import FuncFormatter, MaxNLocator
 from mplsoccer import Radar
 
 
@@ -631,6 +633,200 @@ def _metric_rank_info(dfin: pd.DataFrame, metric: str, player_name: str):
 
     norm = float(np.clip(norm, 0.0, 1.0))
     return {"rank": rk, "total": total, "value": val, "norm": norm, "ascending": ascending}
+
+
+def _format_metric_value(metric: str, value: float | None) -> str:
+    if value is None or not np.isfinite(value):
+        return "—"
+    if "%" in metric:
+        val = float(value)
+        if abs(val) <= 1.2:
+            val *= 100.0
+        return f"{val:.1f}%"
+    abs_val = abs(value)
+    if abs_val >= 100:
+        return f"{value:.0f}"
+    if abs_val >= 10:
+        return f"{value:.1f}"
+    if abs_val >= 1:
+        return f"{value:.2f}"
+    return f"{value:.3f}"
+
+
+def _prepare_metric_bar_context(dfin: pd.DataFrame, metric: str, player_names: list[str]):
+    transform = -1.0 if metric in NEGATE_METRICS else 1.0
+    series = pd.to_numeric(dfin.get(metric, pd.Series(dtype=float)), errors="coerce")
+    series = series.replace([np.inf, -np.inf], np.nan).dropna()
+    plot_series = series * transform
+
+    if plot_series.empty:
+        base_lo, base_hi = -0.5, 0.5
+        q1 = median = q3 = np.nan
+    else:
+        try:
+            base_lo = float(np.nanpercentile(plot_series, 5))
+            base_hi = float(np.nanpercentile(plot_series, 95))
+        except Exception:
+            base_lo, base_hi = float(np.nanmin(plot_series)), float(np.nanmax(plot_series))
+        if not np.isfinite(base_lo) or not np.isfinite(base_hi):
+            base_lo, base_hi = -0.5, 0.5
+        if base_lo == base_hi:
+            base_hi = base_lo + 1.0 if base_lo == 0 else base_lo + abs(base_lo) * 0.1
+        try:
+            q1 = float(np.nanpercentile(plot_series, 25))
+            median = float(np.nanpercentile(plot_series, 50))
+            q3 = float(np.nanpercentile(plot_series, 75))
+        except Exception:
+            q1 = median = q3 = np.nan
+
+    axis_lo, axis_hi = base_lo, base_hi
+    player_infos = []
+    for idx, name in enumerate(player_names):
+        info = _metric_rank_info(dfin, metric, name)
+        info["player"] = name
+        value = info.get("value")
+        if value is None or not np.isfinite(value):
+            info["plot_value"] = np.nan
+        else:
+            plot_val = float(value) * transform
+            info["plot_value"] = plot_val
+            if axis_lo is None or not np.isfinite(axis_lo):
+                axis_lo = plot_val
+            else:
+                axis_lo = min(axis_lo, plot_val)
+            if axis_hi is None or not np.isfinite(axis_hi):
+                axis_hi = plot_val
+            else:
+                axis_hi = max(axis_hi, plot_val)
+        player_infos.append(info)
+
+    if axis_lo is None or axis_hi is None or not np.isfinite(axis_lo) or not np.isfinite(axis_hi):
+        axis_lo, axis_hi = base_lo, base_hi
+    if axis_lo == axis_hi:
+        axis_hi = axis_lo + 1.0 if axis_lo == 0 else axis_lo + abs(axis_lo) * 0.1
+
+    stats = {
+        "transform": transform,
+        "range_lo": base_lo,
+        "range_hi": base_hi,
+        "q1": q1,
+        "median": median,
+        "q3": q3,
+        "axis_lo": axis_lo,
+        "axis_hi": axis_hi,
+    }
+    return stats, player_infos
+
+
+def _draw_metric_bar_axis(ax, metric: str, stats: dict, player_infos: list[dict], colors: list[str]):
+    transform = stats.get("transform", 1.0)
+    axis_lo = stats.get("axis_lo", -0.5)
+    axis_hi = stats.get("axis_hi", 0.5)
+    if not np.isfinite(axis_lo):
+        axis_lo = -0.5
+    if not np.isfinite(axis_hi):
+        axis_hi = 0.5
+    if axis_lo == axis_hi:
+        axis_hi = axis_lo + 1.0 if axis_lo == 0 else axis_lo + abs(axis_lo) * 0.1
+    span = axis_hi - axis_lo
+    margin = span * 0.08 if span != 0 else 1.0
+
+    valid_infos = [(idx, info) for idx, info in enumerate(player_infos) if np.isfinite(info.get("plot_value", np.nan))]
+    missing_infos = [info for info in player_infos if not np.isfinite(info.get("plot_value", np.nan))]
+
+    if valid_infos:
+        y_positions = np.arange(len(valid_infos))[::-1]
+        y_high = (len(valid_infos) - 1) + 0.7
+    else:
+        y_positions = []
+        y_high = 0.7
+    ax.set_ylim(-0.7, y_high)
+    ax.set_xlim(axis_lo - margin, axis_hi + margin)
+    ax.set_yticks([])
+    ax.set_axisbelow(True)
+
+    range_lo = stats.get("range_lo")
+    range_hi = stats.get("range_hi")
+    if np.isfinite(range_lo) and np.isfinite(range_hi):
+        lo_bg, hi_bg = sorted([range_lo, range_hi])
+        ax.axvspan(lo_bg, hi_bg, color="#e2e8f0", alpha=0.55, zorder=0)
+
+    for val, style in [(stats.get("q1"), ":"), (stats.get("median"), "--"), (stats.get("q3"), ":")]:
+        if np.isfinite(val):
+            ax.axvline(val, color="#94a3b8", linestyle=style, linewidth=0.7, zorder=1)
+
+    ax.grid(axis="x", linestyle=":", linewidth=0.5, alpha=0.45, color="#cbd5e1")
+
+    baseline = axis_lo
+    if not np.isfinite(baseline):
+        baseline = axis_lo
+
+    text_offset = max(span * 0.02, 0.05) if span != 0 else 0.05
+    bar_height = 0.38 if len(valid_infos) > 1 else 0.44
+
+    for pos, (idx, info) in zip(y_positions, valid_infos):
+        color = colors[idx] if idx < len(colors) else "#1d4ed8"
+        plot_val = float(info["plot_value"])
+        width = plot_val - baseline
+        ax.barh(pos, width, left=baseline, height=bar_height, color=color, alpha=0.9, zorder=3)
+
+        actual_value = info.get("value")
+        value_txt = _format_metric_value(metric, actual_value)
+        rank = info.get("rank")
+        total = info.get("total")
+        rank_txt = f"  ·  #{rank}/{total}" if rank is not None and total else ""
+        label = f"{value_txt}{rank_txt}".strip()
+
+        if width >= 0:
+            text_x = plot_val + text_offset
+            ha = "left"
+        else:
+            text_x = plot_val - text_offset
+            ha = "right"
+        text_x = float(np.clip(text_x, axis_lo - margin, axis_hi + margin))
+        ax.text(
+            text_x,
+            pos,
+            label,
+            va="center",
+            ha=ha,
+            fontsize=8,
+            color="#0f172a",
+            zorder=4,
+        )
+
+    if missing_infos:
+        for miss_idx, info in enumerate(missing_infos):
+            ax.text(
+                0.02,
+                0.05 + miss_idx * 0.12,
+                f"{info['player']}: sem dados",
+                transform=ax.transAxes,
+                ha="left",
+                va="bottom",
+                fontsize=7,
+                color="#94a3b8",
+            )
+
+    arrow_note = " (menor é melhor)" if transform == -1 else ""
+    ax.set_title(f"{metric}{arrow_note}", fontsize=9, pad=4, loc="left", color="#0f172a")
+
+    ax.xaxis.set_major_locator(MaxNLocator(nbins=4, prune="both"))
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _: _format_metric_value(metric, x * transform)))
+    ax.tick_params(axis="x", labelsize=7, colors="#475569", pad=1)
+
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+
+def _color_with_alpha(color: str, alpha_hex: str) -> str:
+    if isinstance(color, str) and color.startswith("#"):
+        if len(color) == 7:
+            return color + alpha_hex
+        if len(color) == 9:
+            return color[:7] + alpha_hex
+    return color
+
 def render_metric_rank_bars(dfin: pd.DataFrame, player_a: str, metrics: list[str], player_b: str | None = None):
     if not metrics:
         return
@@ -740,6 +936,9 @@ def make_radar_bars_png(df: pd.DataFrame, player_a: str, player_b: str | None, m
 def make_radar_bars_pdf_a4(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
                            color_a: str, color_b: str = "#E76F51") -> io.BytesIO:
     metrics = (metrics or [])[:16]
+    players = [player_a] + ([player_b] if player_b else [])
+    colors = [color_a] + ([color_b] if player_b else [])
+
     lowers, uppers = _bounds_from_df(df, metrics)
     radar = Radar(metrics, lowers, uppers, num_rings=4)
 
@@ -748,7 +947,6 @@ def make_radar_bars_pdf_a4(df: pd.DataFrame, player_a: str, player_b: str | None
 
     v_b = None
     title_a = _player_label(row_a)
-    title = title_a
     age_a = _player_age(row_a)
     if age_a is not None:
         title_a = f"{title_a} ({age_a})"
@@ -762,54 +960,50 @@ def make_radar_bars_pdf_a4(df: pd.DataFrame, player_a: str, player_b: str | None
             title_b = f"{title_b} ({age_b})"
         title = f"{title_a} vs {title_b}"
 
-    # A4 portrait in inches
-    fig = plt.figure(figsize=(8.27, 11.69), constrained_layout=True)
-    gs_main = GridSpec(nrows=2, ncols=1, height_ratios=[2.6, 1], figure=fig)
+    fig = plt.figure(figsize=(8.27, 11.69))
+    gs_main = GridSpec(nrows=2, ncols=1, height_ratios=[2.5, 1.4], figure=fig)
 
-    # ---- Radar area (3/4 of the page) ----
     ax_radar = fig.add_subplot(gs_main[0, 0])
+    ax_radar.set_facecolor("#f8fafc")
     radar.setup_axis(ax=ax_radar)
-    radar.draw_circles(ax=ax_radar, facecolor="#f3f3f3", edgecolor="#c9c9c9", alpha=0.18)
     try:
-        radar.spoke(ax=ax_radar, color="#c9c9c9", linestyle="--", alpha=0.18)
+        radar.draw_circles(ax=ax_radar, facecolor="#f8fafc", edgecolor="#cbd5e1", alpha=0.35)
+        radar.spoke(ax=ax_radar, color="#cbd5e1", linestyle="--", alpha=0.25)
     except Exception:
         pass
 
-    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": color_a+"33", "edgecolor": color_a, "linewidth": 2})
+    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": _color_with_alpha(color_a, "44"), "edgecolor": color_a, "linewidth": 2})
     if v_b is not None:
-        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": color_b+"33", "edgecolor": color_b, "linewidth": 2})
+        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": _color_with_alpha(color_b, "44"), "edgecolor": color_b, "linewidth": 2})
     radar.draw_range_labels(ax=ax_radar, fontsize=9)
     radar.draw_param_labels(ax=ax_radar, fontsize=10)
     ax_radar.set_title(title, fontsize=20, weight="bold", pad=18)
 
-    # ---- Bars area (1/4 of the page) ----
-    cols_per_row = 3
-    total_bar_rows = (len(metrics) + cols_per_row - 1) // cols_per_row
-    sub_gs = GridSpecFromSubplotSpec(nrows=total_bar_rows, ncols=cols_per_row, subplot_spec=gs_main[1, 0])
+    legend_handles = [Patch(facecolor=color_a, edgecolor="none", alpha=0.85, label=player_a)]
+    if player_b:
+        legend_handles.append(Patch(facecolor=color_b, edgecolor="none", alpha=0.85, label=player_b))
+    if legend_handles:
+        ax_radar.legend(handles=legend_handles, loc="upper left", bbox_to_anchor=(0.02, 0.98), frameon=False)
 
-    def _draw_bar(ax, m, player_name):
-        info = _metric_rank_info(df, m, player_name)
-        rk, tot, norm = info["rank"], info["total"], info["norm"]
-        label = f"{m} — {rk}/{tot}" if rk is not None else f"{m} — n/a"
-        ax.barh([0], [norm])
-        ax.set_xlim(0, 1)
-        ax.set_yticks([])
-        ax.set_xticks([0, 0.5, 1])
-        ax.set_xticklabels(["0%","50%","100%"], fontsize=7)
-        ax.set_title(label, fontsize=9, pad=2)
-        for spine in ["top","right","left"]:
-            ax.spines[spine].set_visible(False)
+    cols_per_row = 2 if len(metrics) > 1 else 1
+    total_rows = max(1, math.ceil(len(metrics) / cols_per_row))
+    sub_gs = GridSpecFromSubplotSpec(
+        nrows=total_rows,
+        ncols=cols_per_row,
+        subplot_spec=gs_main[1, 0],
+        wspace=0.28,
+        hspace=0.35,
+    )
 
-    # Draw bars for player A (and overwrite with player B values if present side-by-side not requested)
-    # Here we'll plot player A only to keep bars legible in a limited height area.
-    for i, m in enumerate(metrics):
+    for i, metric in enumerate(metrics):
         r = i // cols_per_row
         c = i % cols_per_row
         ax = fig.add_subplot(sub_gs[r, c])
-        _draw_bar(ax, m, player_a)
+        stats, player_infos = _prepare_metric_bar_context(df, metric, players)
+        _draw_metric_bar_axis(ax, metric, stats, player_infos, colors)
 
-    # Save into an in-memory PDF
     buf = io.BytesIO()
+    fig.tight_layout()
     fig.savefig(buf, format="pdf", bbox_inches="tight", pad_inches=0.2)
     plt.close(fig)
     buf.seek(0)
@@ -1330,6 +1524,8 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
     from datetime import datetime
 
     metrics = (metrics or [])[:16]
+    players = [player_a] + ([player_b] if player_b else [])
+    colors = [color_a] + ([color_b] if player_b else [])
 
     # --- Dados dos jogadores
     row_a = df[df["Player"] == player_a].iloc[0]
@@ -1354,7 +1550,7 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
     lowers, uppers = _bounds_from_df(df, metrics)
     radar = Radar(metrics, lowers, uppers, num_rings=4)
 
-    cols_per_row = 3
+    cols_per_row = 2 if len(metrics) > 1 else 1
     total_rows = max(1, math.ceil(len(metrics) / cols_per_row))
     header_rows = 2
     radar_rows = 7
@@ -1434,11 +1630,17 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
         radar.spoke(ax=ax_radar, color="#cbd5e1", linestyle="--", alpha=0.25)
     except Exception:
         pass
-    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": color_a, "edgecolor": color_a, "linewidth": 2})
+    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": _color_with_alpha(color_a, "55"), "edgecolor": color_a, "linewidth": 2})
     if v_b is not None:
-        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": color_b, "edgecolor": color_b, "linewidth": 2})
+        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": _color_with_alpha(color_b, "55"), "edgecolor": color_b, "linewidth": 2})
     radar.draw_range_labels(ax=ax_radar, fontsize=9)
     radar.draw_param_labels(ax=ax_radar, fontsize=10)
+
+    legend_handles = [Patch(facecolor=color_a, edgecolor="none", alpha=0.85, label=player_a)]
+    if player_b:
+        legend_handles.append(Patch(facecolor=color_b, edgecolor="none", alpha=0.85, label=player_b))
+    if legend_handles:
+        ax_radar.legend(handles=legend_handles, loc="upper left", bbox_to_anchor=(0.01, 0.98), frameon=False)
 
     # ======= BARRAS (menores/achatadas) =======
     bars_start = radar_end
@@ -1447,57 +1649,15 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
         nrows=total_rows,
         ncols=cols_per_row,
         subplot_spec=gs_page[bars_start:bars_end, 0:12],
-        wspace=0.18,
-        hspace=0.18,
+        wspace=0.35,
+        hspace=0.28,
     )
-
-    def _draw_bar_slim(ax, m, player_name, row_idx, total_rows_in_grid):
-        info = _metric_rank_info(df, m, player_name)
-        rk, tot, norm = info.get("rank"), info.get("total"), info.get("norm")
-        label = f"{m} — {rk}/{tot}" if rk is not None else f"{m}"
-        raw_norm = norm
-        if raw_norm is None or not np.isfinite(raw_norm):
-            value = 0.0
-        else:
-            value = float(np.clip(raw_norm, 0.0, 1.0))
-
-        ax.barh([0], [1], height=0.32, color="#e2e8f0", edgecolor="none", zorder=0)
-        ax.barh([0], [value], height=0.22, color=color_a, edgecolor="none", zorder=2, alpha=0.85)
-        ax.set_xlim(0, 1)
-        ax.set_ylim(-0.6, 0.6)
-        ax.set_yticks([])
-        # ticks only on bottom row for cleanliness
-        if row_idx == (total_rows_in_grid - 1):
-            ax.set_xticks([0, 0.5, 1])
-            ax.set_xticklabels(["0%","50%","100%"], fontsize=7)
-            ax.tick_params(axis="x", labelsize=7, colors="#475569", pad=0)
-        else:
-            ax.set_xticks([0, 0.5, 1])
-            ax.set_xticklabels([])
-            ax.tick_params(axis="x", length=0)
-        # label as text (evita quebra estranha de título)
-        ax.text(
-            0.02,
-            0.5,
-            label,
-            transform=ax.transAxes,
-            ha="left",
-            va="center",
-            fontsize=8,
-            color="#0f172a",
-            bbox={"facecolor": "white", "edgecolor": "none", "pad": 0.15, "alpha": 0.9},
-            zorder=5,
-        )
-        ax.grid(True, axis="x", linewidth=0.3, alpha=0.4, color="#cbd5e1", zorder=-1)
-        ax.set_axisbelow(True)
-        for spine in ["top", "right", "left", "bottom"]:
-            ax.spines[spine].set_visible(False)
-
-    for i, m in enumerate(metrics):
+    for i, metric in enumerate(metrics):
         r = i // cols_per_row
         c = i % cols_per_row
         ax = fig.add_subplot(sub_gs[r, c])
-        _draw_bar_slim(ax, m, player_a, r, total_rows)
+        stats, player_infos = _prepare_metric_bar_context(df, metric, players)
+        _draw_metric_bar_axis(ax, metric, stats, player_infos, colors)
 
     buf = io.BytesIO()
     fig.savefig(buf, format="pdf", bbox_inches="tight", dpi=300)
