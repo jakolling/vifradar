@@ -1821,3 +1821,25 @@ def make_radar_bars_pdf_a4(df: pd.DataFrame, player_a: str, player_b: str | None
     plt.close(fig)
     buf.seek(0)
     return buf
+
+
+
+# ===== PDF hotfix: compatibilidade de assinatura =====
+# Permite chamar make_radar_bars_pdf_a4 com kwargs (player_photo_bytes, crest_bytes)
+# mesmo que a função original não os aceite (evita TypeError).
+try:
+    from inspect import signature
+    _sig = signature(make_radar_bars_pdf_a4)
+    if "player_photo_bytes" not in _sig.parameters or "crest_bytes" not in _sig.parameters:
+        _old_pdf_func = make_radar_bars_pdf_a4
+
+        def make_radar_bars_pdf_a4(
+            df, player_a, player_b, metrics, color_a, color_b,
+            player_photo_bytes=None, crest_bytes=None
+        ):
+            # Chama a versão antiga ignorando os novos kwargs
+            return _old_pdf_func(df, player_a, player_b, metrics, color_a, color_b)
+except Exception:
+    # Se algo falhar no hotfix, não impede o app de rodar
+    pass
+# ===== fim do hotfix =====
