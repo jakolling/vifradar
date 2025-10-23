@@ -1365,7 +1365,7 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
 
     # Slots do cabeçalho
     ax_photo = fig.add_subplot(gs_page[0:2, 0:2]); ax_photo.axis("off")
-    ax_title = fig.add_subplot(gs_page[0:2, 2:10]); ax_title.axis("off")
+    ax_title = fig.add_subplot(gs_page[0:2, 3:9]); ax_title.axis("off")
     ax_crest = fig.add_subplot(gs_page[0:2, 10:12]); ax_crest.axis("off")
 
     # Espaços reservados (quadrados brancos) - sempre renderizados, com leve borda cinza
@@ -1391,9 +1391,9 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
     _draw_image_center(ax_crest, crest_bytes)
 
     # Título (apenas no centro; nada nos slots de foto/escudo)
-    ax_title.text(0.5, 0.62, title, ha="center", va="center",
-                  fontsize=16, weight="bold", color="white", transform=ax_title.transAxes)
-    ax_title.text(0.5, 0.30, f"Relatório gerado em {datetime.now().strftime('%d %b %Y')}",
+    ax_title.text(0.5, 0.68, title, ha="center", va="center",
+                  fontsize=15, weight="bold", color="white", transform=ax_title.transAxes)
+    ax_title.text(0.5, 0.32, f"Relatório gerado em {datetime.now().strftime('%d %b %Y')}",
                   ha="center", va="center", fontsize=9, color="#cbd5e1", transform=ax_title.transAxes)
 
     # ======= RADAR (maior) =======
@@ -1422,20 +1422,20 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
     cols_per_row = 3
     total_rows = min((len(metrics) + cols_per_row - 1) // cols_per_row, 3)  # limite 3 linhas
     sub_gs = GridSpecFromSubplotSpec(nrows=total_rows, ncols=cols_per_row,
-                                     subplot_spec=gs_page[9:12, 0:12], wspace=0.35, hspace=0.65)
+                                     subplot_spec=gs_page[9:12, 0:12], wspace=0.28, hspace=0.22)
 
     def _draw_bar_slim(ax, m, player_name):
         info = _metric_rank_info(df, m, player_name)
         rk, tot, norm = info.get("rank"), info.get("total"), info.get("norm")
         label = f"{m} — {rk}/{tot}" if rk is not None else f"{m}"
         # barras finas ("filamentadas")
-        ax.barh([0], [norm if norm is not None else 0], height=0.18)  # altura bem reduzida
+        ax.barh([0], [norm if norm is not None else 0], height=0.14)  # mais fina
         ax.set_xlim(0, 1)
         ax.set_ylim(-0.6, 0.6)  # espaço vertical enxuto
         ax.set_yticks([])
         ax.set_xticks([0, 0.5, 1])
-        ax.set_xticklabels(["0%","50%","100%"], fontsize=7)
-        ax.set_title(label, fontsize=9, pad=2)
+        ax.set_xticklabels(["0%","50%","100%"], fontsize=7) ; ax.tick_params(axis="x", pad=0)
+        ax.set_title(label, fontsize=8, pad=0.5)
         for spine in ["top","right","left"]:
             ax.spines[spine].set_visible(False)
 
@@ -1445,10 +1445,79 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
         ax = fig.add_subplot(sub_gs[r, c])
         _draw_bar_slim(ax, m, player_a)
 
-    # ======= EXPORT =======
+    # ======= EXPORT (multi-page if needed) =======
+    from matplotlib.backends.backend_pdf import PdfPages
+
+    # Compute capacity for first page
+    first_capacity = cols_per_row * total_rows
+    remaining_metrics = metrics[first_capacity:]
+
     buf = io.BytesIO()
-    fig.savefig(buf, format="pdf", dpi=300, bbox_inches="tight", pad_inches=0.25)
-    plt.close(fig)
+    with PdfPages(buf) as pdf:
+        pdf.savefig(fig, bbox_inches="tight", dpi=300)
+        plt.close(fig)
+
+        # Add compact bar-only pages for remaining metrics (if any)
+        if remaining_metrics:
+            per_page_rows = 10  # 10 rows x 3 cols = 30 metrics per extra page
+            per_page_capacity = cols_per_row * per_page_rows
+
+            def _make_bars_page(chunk, title_suffix="(cont.)"):
+                fig2 = plt.figure(figsize=(8.27, 11.69))
+                gs2  = GridSpec(nrows=12, ncols=12, figure=fig2)
+
+                # Header band with white placeholders (keep same style)
+                axh = fig2.add_subplot(gs2[0:2, :]); axh.axis("off")
+                from matplotlib.patches import FancyBboxPatch, Rectangle
+                band2 = FancyBboxPatch((0.01, 0.01), 0.98, 0.98, boxstyle="round,pad=0.02,rounding_size=0.02",
+                                       transform=axh.transAxes, linewidth=0, facecolor="#0f172a", alpha=0.98)
+                axh.add_patch(band2)
+
+                axp = fig2.add_subplot(gs2[0:2, 0:2]); axp.axis("off")
+                axc = fig2.add_subplot(gs2[0:2, 10:12]); axc.axis("off")
+                rect = Rectangle((0.15, 0.15), 0.70, 0.70, transform=axp.transAxes,
+                                  facecolor="white", edgecolor="#e5e7eb", linewidth=1.0)
+                axp.add_patch(rect)
+                rect2 = Rectangle((0.15, 0.15), 0.70, 0.70, transform=axc.transAxes,
+                                   facecolor="white", edgecolor="#e5e7eb", linewidth=1.0)
+                axc.add_patch(rect2)
+
+                axt = fig2.add_subplot(gs2[0:2, 3:9]); axt.axis("off")
+                axt.text(0.5, 0.68, f"{title} {title_suffix}", ha="center", va="center",
+                         fontsize=15, weight="bold", color="white", transform=axt.transAxes)
+                from datetime import datetime as _dt
+                axt.text(0.5, 0.32, f"Relatório gerado em {_dt.now().strftime('%d %b %Y')}",
+                         ha="center", va="center", fontsize=9, color="#cbd5e1", transform=axt.transAxes)
+
+                # Bars grid (compact)
+                sub = GridSpecFromSubplotSpec(nrows=per_page_rows, ncols=cols_per_row,
+                                              subplot_spec=gs2[2:12, 0:12], wspace=0.24, hspace=0.16)
+                for i, m in enumerate(chunk):
+                    r = i // cols_per_row
+                    c = i % cols_per_row
+                    axb = fig2.add_subplot(sub[r, c])
+                    info = _metric_rank_info(df, m, player_a)
+                    rk, tot, norm = info.get("rank"), info.get("total"), info.get("norm")
+                    label = f"{m} — {rk}/{tot}" if rk is not None else f"{m}"
+                    axb.barh([0], [norm if norm is not None else 0], height=0.12)
+                    axb.set_xlim(0, 1)
+                    axb.set_ylim(-0.6, 0.6)
+                    axb.set_yticks([])
+                    axb.set_xticks([0, 0.5, 1])
+                    axb.set_xticklabels(["0%","50%","100%"], fontsize=7)
+                    axb.tick_params(axis="x", pad=0)
+                    axb.set_title(label, fontsize=8, pad=0.5)
+                    for spine in ["top","right","left"]:
+                        axb.spines[spine].set_visible(False)
+                return fig2
+
+            # Paginate remaining metrics
+            for page_idx in range(0, len(remaining_metrics), per_page_capacity):
+                chunk = remaining_metrics[page_idx: page_idx + per_page_capacity]
+                fig_extra = _make_bars_page(chunk, title_suffix=f"(barras – pág. {1 + page_idx // per_page_capacity + 1})")
+                pdf.savefig(fig_extra, bbox_inches="tight", dpi=300)
+                plt.close(fig_extra)
+
     buf.seek(0)
     return buf
 
