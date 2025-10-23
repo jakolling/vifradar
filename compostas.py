@@ -76,8 +76,7 @@ st.set_page_config(
     page_title="Composite Metrics & Radar",
     page_icon="⚽",
     layout="wide",
-    initial_sidebar_state="expanded",
-)
+    initial_sidebar_state="expanded")
 st.markdown(
     """
     <style>
@@ -89,8 +88,7 @@ st.markdown(
     .small {font-size: 0.9rem}
     </style>
     """,
-    unsafe_allow_html=True,
-)
+    unsafe_allow_html=True)
 
 # ===================== CONSTANTS =====================
 OFFENSIVE_COMPONENTS = [
@@ -1317,14 +1315,12 @@ if p1 and metrics_sel:
         None if p2 == "—" else p2,
         metrics_sel,
         color_a,
-        color_b,
-    )
+        color_b)
     st.download_button(
         "⬇️ Download Radar + Barras (PNG)",
         data=png_buf.getvalue(),
         file_name="radar_barras.png",
-        mime="image/png",
-    )
+        mime="image/png")
 
 # Download button for A4 PDF (PRO)
 if p1 and metrics_sel:
@@ -1334,16 +1330,12 @@ if p1 and metrics_sel:
         None if p2 == "—" else p2,
         metrics_sel,
         color_a,
-        color_b,
-        player_photo_bytes=player_photo_bytes,
-        crest_bytes=crest_bytes,
-    )
+        color_b)
     st.download_button(
         "⬇️ Download Radar + Barras (PDF A4)",
         data=pdf_buf.getvalue(),
         file_name="radar_barras_A4.pdf",
-        mime="application/pdf",
-    )
+        mime="application/pdf")
 with colB:
     if p1 and metrics_sel:
         plot_radar(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b)
@@ -1355,8 +1347,7 @@ st.download_button(
     "Download full CSV",
     df_all.to_csv(index=False).encode("utf-8"),
     file_name="composite_metrics_base.csv",
-    mime="text/csv",
-)
+    mime="text/csv")
 
 
 # --- Revised presets (auto-generated) ---
