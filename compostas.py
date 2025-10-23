@@ -1309,8 +1309,193 @@ with colA:
     crest_bytes = crest_up.read() if crest_up else None
 
 
+# Download button for combined PNG
+if p1 and metrics_sel:
+    png_buf = make_radar_bars_png(
+        df_all,
+        p1,
+        None if p2 == "—" else p2,
+        metrics_sel,
+        color_a,
+        color_b,
+    )
+    st.download_button(
+        "⬇️ Download Radar + Barras (PNG)",
+        data=png_buf.getvalue(),
+        file_name="radar_barras.png",
+        mime="image/png",
+    )
 
-# === PRO PDF (definition placed before usage) ===
+# Download button for A4 PDF (PRO)
+if p1 and metrics_sel:
+    pdf_buf = make_radar_bars_pdf_a4_pro(
+        df_all,
+        p1,
+        None if p2 == "—" else p2,
+        metrics_sel,
+        color_a,
+        color_b,
+        player_photo_bytes=player_photo_bytes,
+        crest_bytes=crest_bytes,
+    )
+    st.download_button(
+        "⬇️ Download Radar + Barras (PDF A4)",
+        data=pdf_buf.getvalue(),
+        file_name="radar_barras_A4.pdf",
+        mime="application/pdf",
+    )
+with colB:
+    if p1 and metrics_sel:
+        plot_radar(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b)
+        render_metric_rank_bars(df_all, p1, metrics_sel, None if p2 == "—" else p2)
+
+# ===================== Export =====================
+st.markdown("<div class='section'>Export</div>", unsafe_allow_html=True)
+st.download_button(
+    "Download full CSV",
+    df_all.to_csv(index=False).encode("utf-8"),
+    file_name="composite_metrics_base.csv",
+    mime="text/csv",
+)
+
+
+# --- Revised presets (auto-generated) ---
+PRESETS = {'aerial_duels': ['Aerial Threat',
+                  'Aerial Defence',
+                  'Aerial duels per 90',
+                  'Aerial duels won, %',
+                  'Head goals per 90',
+                  'Involvement',
+                  'Defence'],
+ 'attacking_midfielder': ['Creativity',
+                          'Progression',
+                          'xA per 90',
+                          'Key passes per 90',
+                          'Smart passes per 90',
+                          'Deep completions per 90',
+                          'Work Rate Offensive',
+                          'Offensive Intensity',
+                          'Offensive Explosion'],
+ 'center_back': ['Defence',
+                 'Aerial Defence',
+                 'Aerial duels per 90',
+                 'Aerial duels won, %',
+                 'Defensive duels per 90',
+                 'Defensive duels won, %',
+                 'PAdj Interceptions',
+                 'PAdj Sliding tackles',
+                 'Passes to final third per 90',
+                 'Accurate passes %',
+                 'Work Rate Defensive',
+                 'Defensive Intensity',
+                 'Defensive Explosion'],
+ 'central_midfielder': ['Progression',
+                        'Passing Quality',
+                        'PAdj Interceptions',
+                        'Successful defensive actions per 90',
+                        'Work Rate Defensive',
+                        'Defensive Intensity',
+                        'Passes to final third per 90',
+                        'Progressive runs per 90',
+                        'Deep completions per 90'],
+ 'counter_attack': ['Progression',
+                    'Accelerations per 90',
+                    'Dribbles per 90',
+                    'Successful dribbles, %',
+                    'npxG per 90',
+                    'Finishing',
+                    'Box Threat'],
+ 'crossing': ['Crossing',
+              'Accurate crosses, %',
+              'Deep completed crosses per 90',
+              'xA per 90',
+              'Shot assists per 90',
+              'Creativity',
+              'Passing Quality'],
+ 'defensive_actions': ['Defence',
+                       'Aerial Defence',
+                       'PAdj Interceptions',
+                       'Successful defensive actions per 90',
+                       'Defensive duels won, %',
+                       'Shots blocked per 90',
+                       'Discipline'],
+ 'defensive_midfielder': ['Defence',
+                          'Progression',
+                          'Discipline',
+                          'PAdj Interceptions',
+                          'Successful defensive actions per 90',
+                          'Work Rate Defensive',
+                          'Defensive Intensity',
+                          'Defensive Explosion',
+                          'Defensive duels won, %',
+                          'Aerial duels won, %'],
+ 'forward': ['npxG per 90',
+             'xG per 90',
+             'Shots per 90',
+             'Shots on target, %',
+             'xA per 90',
+             'Key passes per 90',
+             'Touches in box per 90',
+             'Progressive runs per 90',
+             'Deep completions per 90',
+             'Finishing',
+             'Poaching',
+             'Aerial Threat',
+             'Work Rate Offensive',
+             'Offensive Intensity',
+             'Offensive Explosion'],
+ 'full_back': ['Progression',
+               'Creativity',
+               'Passing Quality',
+               'Aerial Defence',
+               'Deep completed crosses per 90',
+               'Progressive runs per 90',
+               'Crosses per 90',
+               'Work Rate Defensive',
+               'Defensive Intensity',
+               'Defensive Explosion'],
+ 'general_summary': ['Involvement', 'Creativity', 'Box Threat', 'Discipline'],
+ 'playmaking_build_up': ['Successful attacking actions per 90',
+                         'Deep completions per 90',
+                         'Key passes per 90',
+                         'Discipline',
+                         'Creativity',
+                         'Passing Quality',
+                         'Progression'],
+ 'shooting': ['npxG per 90',
+              'npxG per Shot',
+              'Finishing',
+              'Goal conversion, %',
+              'Shots on target, %',
+              'G-xG',
+              'Box Threat'],
+ 'striker': ['Involvement',
+             'npxG per 90',
+             'npxG per Shot',
+             'Finishing',
+             'Poaching',
+             'Aerial Threat',
+             'Box Threat',
+             'Touches in box per 90',
+             'Shots per 90',
+             'Shots on target, %'],
+ 'winger': ['Creativity',
+            'Progression',
+            'Dribbles per 90',
+            'Dribbles won, %',
+            'Crosses per 90',
+            'Accurate crosses, %',
+            'Deep completed crosses per 90',
+            'Progressive runs per 90',
+            'xA per 90',
+            'Key passes per 90',
+            'Work Rate Offensive',
+            'Offensive Intensity',
+            'Offensive Explosion',
+            'Successful dribbles, %']}
+
+
+# --- Guarantee fusion of playmaking + build_up into playmaking_build_up (runs after any PRESETS re-definitions) ---
 def _radar_norm_key__pm_bu(s: str) -> str:
     return (
         str(s).strip().lower().replace("-", "_").replace(" ", "_")
@@ -1368,14 +1553,6 @@ def _percentile_rank_by_cohort_safe(df: pd.DataFrame, metric: str,
         return out
 
     grp_keys = df.loc[mask, group_cols].apply(tuple, axis=1)
-    def _pct_rank(x):
-        n = x.shape[0]
-        if n <= 1: return pd.Series(np.nan, index=x.index)
-        r = x.rank(ascending=False, method="average")
-        return 100.0 * (n - r) / (n - 1)
-    out.loc[mask] = s[mask].groupby(grp_keys).transform(_pct_rank)
-    return out
-
 def _choose_default_blocks(df: pd.DataFrame) -> dict:
     blocks = {}
     cand_off = [c for c in [
