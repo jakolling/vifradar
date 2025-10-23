@@ -197,6 +197,9 @@ def make_radar_bars_pdf_a4_pro(
 
     _draw_image(player_photo_bytes, [0.08, 0.86, 0.18, 0.10])  # topo-esquerda
     _draw_image(crest_bytes,         [0.74, 0.86, 0.18, 0.10])  # topo-direita
+    # ensure custom 'radar' projection is registered
+    _ = _radar_factory(len(metrics))
+
 
     # ----- Radar (3/4) -----
     ax_radar = plt.subplot(gs0[1, 0], projection='radar')
