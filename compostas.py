@@ -96,6 +96,10 @@ class Radar:
         vals = np.concatenate((vals, [vals[0]]))
         kw = dict(kwargs_radar or {})
         face = kw.pop('facecolor', None)
+        # Map edgecolor -> color for Line2D
+        color = kw.pop('edgecolor', kw.pop('color', None))
+        if color is not None:
+            kw['color'] = color
         ax.plot(angles, vals, **kw)
         if face is not None:
             alpha = kw.get('alpha', 0.25)
@@ -167,6 +171,10 @@ class RadarPRO:
         vals = np.concatenate((vals, [vals[0]]))
         kw = dict(kwargs_radar or {})
         face = kw.pop('facecolor', None)
+        # Map edgecolor -> color for Line2D
+        color = kw.pop('edgecolor', kw.pop('color', None))
+        if color is not None:
+            kw['color'] = color
         ax.plot(angles, vals, **kw)
         if face is not None:
             alpha = kw.get('alpha', 0.25)
