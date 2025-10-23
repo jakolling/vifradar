@@ -811,17 +811,16 @@ def make_radar_bars_png(df: pd.DataFrame, player_a: str, player_b: str | None, m
     csv_bytes = res[show_cols].to_csv(index=False).encode("utf-8") if show_cols else b""
     st.download_button("Baixar resultados (CSV)", data=csv_bytes, file_name="busca_percentis.csv", mime="text/csv")
 
+if up is None:
+    st.info("Upload your merged Excel on the left panel to begin (or enable Demo mode).")
 else:
-    if up is None:
-        st.info("Upload your merged Excel on the left panel to begin (or enable Demo mode).")
-    else:
-        with st.spinner("Loading data and computing metrics…"):
-            try:
-                df_raw = _load_excel(up)
-                df = compute_composite_metrics(df_raw, DEFAULT_OFF_WEIGHTS)
-            except Exception as e:
-                st.error("There was an error while computing metrics.")
-                st.exception(e)
+    with st.spinner("Loading data and computing metrics…"):
+        try:
+            df_raw = _load_excel(up)
+            df = compute_composite_metrics(df_raw, DEFAULT_OFF_WEIGHTS)
+        except Exception as e:
+            st.error("There was an error while computing metrics.")
+            st.exception(e)
 
 if df is None or df.empty:
     st.stop()
