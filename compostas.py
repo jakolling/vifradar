@@ -10,6 +10,7 @@ from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
 from matplotlib.patches import Patch
 from matplotlib.ticker import FuncFormatter, MaxNLocator
 from mplsoccer import Radar
+from PIL import Image
 
 
 from datetime import datetime, date
@@ -722,16 +723,12 @@ def _draw_metric_bar_axis(ax, metric: str, stats: dict, player_infos: list[dict]
     transform = stats.get("transform", 1.0)
     axis_lo = stats.get("axis_lo", -0.5)
     axis_hi = stats.get("axis_hi", 0.5)
-<<<<<<< codex/refazer-grafico-de-barras-no-pdf-fqlhum
-
-=======
 >>>>>>> main
     if not np.isfinite(axis_lo):
         axis_lo = -0.5
     if not np.isfinite(axis_hi):
         axis_hi = 0.5
     if axis_lo == axis_hi:
-<<<<<<< codex/refazer-grafico-de-barras-no-pdf-fqlhum
         pad = abs(axis_lo) * 0.1 if axis_lo != 0 else 1.0
         axis_lo -= pad * 0.5
         axis_hi += pad * 0.5
@@ -759,7 +756,6 @@ def _draw_metric_bar_axis(ax, metric: str, stats: dict, player_infos: list[dict]
 
     ax.set_ylim(-0.7, y_high)
     ax.set_xlim(axis_lo - margin, axis_hi + margin)
-=======
         axis_hi = axis_lo + 1.0 if axis_lo == 0 else axis_lo + abs(axis_lo) * 0.1
     span = axis_hi - axis_lo
     margin = span * 0.06 if span != 0 else 1.0
@@ -773,13 +769,11 @@ def _draw_metric_bar_axis(ax, metric: str, stats: dict, player_infos: list[dict]
     range_hi = stats.get("range_hi")
     if np.isfinite(range_lo) and np.isfinite(range_hi):
         lo_bg, hi_bg = sorted([range_lo, range_hi])
-<<<<<<< codex/refazer-grafico-de-barras-no-pdf-fqlhum
         ax.axvspan(lo_bg, hi_bg, color="#e2e8f0", alpha=0.55, zorder=0)
 
     zero_in_range = axis_lo < 0 < axis_hi
     if zero_in_range:
         ax.axvline(0, color="#94a3b8", linewidth=0.6, alpha=0.7, zorder=1)
-=======
         ax.axvspan(lo_bg, hi_bg, color="#e2e8f0", alpha=0.6, zorder=0)
 >>>>>>> main
 
@@ -787,7 +781,6 @@ def _draw_metric_bar_axis(ax, metric: str, stats: dict, player_infos: list[dict]
         if np.isfinite(val):
             ax.axvline(val, color="#94a3b8", linestyle=style, linewidth=0.7, zorder=1)
 
-<<<<<<< codex/refazer-grafico-de-barras-no-pdf-fqlhum
     ax.grid(axis="x", linestyle=":", linewidth=0.5, alpha=0.45, color="#cbd5e1")
 
     if zero_in_range:
@@ -803,7 +796,6 @@ def _draw_metric_bar_axis(ax, metric: str, stats: dict, player_infos: list[dict]
         plot_val = float(info["plot_value"])
         width = plot_val - baseline
         ax.barh(pos, width, left=baseline, height=bar_height, color=color, alpha=0.9, zorder=3)
-=======
     ax.grid(axis="x", linestyle=":", linewidth=0.4, alpha=0.5, color="#cbd5e1")
 
     valid_infos = [(idx, info) for idx, info in enumerate(player_infos) if np.isfinite(info.get("plot_value", np.nan))]
@@ -833,10 +825,6 @@ def _draw_metric_bar_axis(ax, metric: str, stats: dict, player_infos: list[dict]
         value_txt = _format_metric_value(metric, actual_value)
         rank = info.get("rank")
         total = info.get("total")
-<<<<<<< codex/refazer-grafico-de-barras-no-pdf-fqlhum
-        rank_txt = f"  ·  #{rank}/{total}" if rank is not None and total else ""
-        label = f"{value_txt}{rank_txt}".strip()
-=======
         rank_txt = f" (#{rank}/{total})" if rank is not None and total else ""
         label = f"{info['player']}: {value_txt}{rank_txt}"
 >>>>>>> main
@@ -847,7 +835,6 @@ def _draw_metric_bar_axis(ax, metric: str, stats: dict, player_infos: list[dict]
         else:
             text_x = plot_val - text_offset
             ha = "right"
-<<<<<<< codex/refazer-grafico-de-barras-no-pdf-fqlhum
         text_x = float(np.clip(text_x, axis_lo - margin * 0.6, axis_hi + margin * 0.6))
         ax.text(
             text_x,
@@ -880,7 +867,6 @@ def _draw_metric_bar_axis(ax, metric: str, stats: dict, player_infos: list[dict]
     ax.xaxis.set_major_locator(MaxNLocator(nbins=4, prune="both"))
     ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _: _format_metric_value(metric, x * transform)))
     ax.tick_params(axis="x", labelsize=7, colors="#475569", pad=2)
-=======
         text_x = float(np.clip(text_x, axis_lo - margin, axis_hi + margin))
         ax.text(text_x, pos, label, va="center", ha=ha, fontsize=8, color="#0f172a", zorder=4)
 
@@ -1605,13 +1591,6 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
       - Barras MENORES e mais "filamentadas" (altura reduzida).
       - Saída consolidada em uma única página PDF, com grelha dinâmica para alinhar todas as barras.
     """
-    import matplotlib.pyplot as plt
-    from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
-    from matplotlib.patches import FancyBboxPatch
-    from PIL import Image
-    import io
-    from datetime import datetime
-
     metrics = (metrics or [])[:16]
     players = [player_a] + ([player_b] if player_b else [])
     colors = [color_a] + ([color_b] if player_b else [])
