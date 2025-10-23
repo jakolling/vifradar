@@ -25,6 +25,10 @@ min_minutes = st.sidebar.number_input(
 
 # === END SIDEBAR Controls ===
 
+# Ensure df is defined before any conditional checks
+df = None
+
+
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
 from mplsoccer import Radar
