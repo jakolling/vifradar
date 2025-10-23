@@ -5,6 +5,26 @@ import math
 import numpy as np
 import pandas as pd
 import streamlit as st
+
+# === SIDEBAR Controls (moved right after st import) ===
+st.sidebar.header("⚙️ Settings")
+up = st.sidebar.file_uploader("Upload merged Excel (WyScout + SkillCorner)", type=["xlsx"])
+TOPN = st.sidebar.slider("Top N per ranking", 5, 50, 10, 1)
+pos_filter = st.sidebar.text_input("Filter by Position (regex)", value="")
+team_filter = st.sidebar.text_input("Filter by Team (exact match)", value="")
+demo_mode = st.sidebar.checkbox("Demo mode (synthetic data)", value=False)
+min_minutes = st.sidebar.number_input(
+    "Minimum minutes played",
+    min_value=0,
+    value=0,
+    step=90,
+    help="Apenas os Rankings respeitarão este filtro. Radar e percentis usam o dataset completo."
+)
+
+
+
+# === END SIDEBAR Controls ===
+
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
 from mplsoccer import Radar
@@ -1165,6 +1185,10 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
 
+
+
+
+
 # === PRO PDF (single source of truth) ===
 def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
                            color_a: str, color_b: str = "#E76F51") -> io.BytesIO:
@@ -1246,19 +1270,6 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
 
 
 # ===================== SIDEBAR — Controls =====================
-st.sidebar.header("⚙️ Settings")
-up = st.sidebar.file_uploader("Upload merged Excel (WyScout + SkillCorner)", type=["xlsx"])
-TOPN = st.sidebar.slider("Top N per ranking", 5, 50, 10, 1)
-pos_filter = st.sidebar.text_input("Filter by Position (regex)", value="")
-team_filter = st.sidebar.text_input("Filter by Team (exact match)", value="")
-demo_mode = st.sidebar.checkbox("Demo mode (synthetic data)", value=False)
-min_minutes = st.sidebar.number_input(
-    "Minimum minutes played",
-    min_value=0,
-    value=0,
-    step=90,
-    help="Apenas os Rankings respeitarão este filtro. Radar e percentis usam o dataset completo."
-)
 
 # ===================== SIDEBAR NAVIGATION =====================
 
@@ -1535,6 +1546,10 @@ if page == "Ferramenta de Busca":
 
         # Cálculo de percentis por métrica (dataset completo) — rank-based (0–100)
 # === END PRO PDF ===
+
+
+
+
 
 def _percentile_rank_by_cohort_safe(df: pd.DataFrame, metric: str,
                                     league_col: str = "League", pos_col: str = "Position",
