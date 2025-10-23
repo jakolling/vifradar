@@ -6,8 +6,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
-from matplotlib.patches import Patch
+from matplotlib.gridspec import GridSpec
 from matplotlib.ticker import FuncFormatter, MaxNLocator
 from mplsoccer import Radar
 
@@ -807,15 +806,6 @@ def _draw_metric_bar_axis(ax, metric: str, stats: dict, player_infos: list[dict]
     for spine in ax.spines.values():
         spine.set_visible(False)
 
-
-def _color_with_alpha(color: str, alpha_hex: str) -> str:
-    if isinstance(color, str) and color.startswith("#"):
-        if len(color) == 7:
-            return color + alpha_hex
-        if len(color) == 9:
-            return color[:7] + alpha_hex
-    return color
-
 def render_metric_rank_bars(dfin: pd.DataFrame, player_a: str, metrics: list[str], player_b: str | None = None):
     if not metrics:
         return
@@ -919,85 +909,6 @@ def make_radar_bars_png(df: pd.DataFrame, player_a: str, player_b: str | None, m
     plt.close(fig)
     buf.seek(0)
     return buf
-
-
-# ======= Build an A4 PDF (Radar 3/4 + Bars 1/4) =======
-def make_radar_bars_pdf_a4(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
-                           color_a: str, color_b: str = "#E76F51") -> io.BytesIO:
-    metrics = (metrics or [])[:16]
-    players = [player_a] + ([player_b] if player_b else [])
-    colors = [color_a] + ([color_b] if player_b else [])
-
-    lowers, uppers = _bounds_from_df(df, metrics)
-    radar = Radar(metrics, lowers, uppers, num_rings=4)
-
-    row_a = df[df["Player"] == player_a].iloc[0]
-    v_a = _values_for_player(row_a, metrics)
-
-    v_b = None
-    title_a = _player_label(row_a)
-    age_a = _player_age(row_a)
-    if age_a is not None:
-        title_a = f"{title_a} ({age_a})"
-    title = title_a
-    if player_b:
-        row_b = df[df["Player"] == player_b].iloc[0]
-        v_b = _values_for_player(row_b, metrics)
-        title_b = _player_label(row_b)
-        age_b = _player_age(row_b)
-        if age_b is not None:
-            title_b = f"{title_b} ({age_b})"
-        title = f"{title_a} vs {title_b}"
-
-    fig = plt.figure(figsize=(8.27, 11.69))
-    gs_main = GridSpec(nrows=2, ncols=1, height_ratios=[2.5, 1.4], figure=fig)
-
-    ax_radar = fig.add_subplot(gs_main[0, 0])
-    ax_radar.set_facecolor("#f8fafc")
-    radar.setup_axis(ax=ax_radar)
-    try:
-        radar.draw_circles(ax=ax_radar, facecolor="#f8fafc", edgecolor="#cbd5e1", alpha=0.35)
-        radar.spoke(ax=ax_radar, color="#cbd5e1", linestyle="--", alpha=0.25)
-    except Exception:
-        pass
-
-    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": _color_with_alpha(color_a, "44"), "edgecolor": color_a, "linewidth": 2})
-    if v_b is not None:
-        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": _color_with_alpha(color_b, "44"), "edgecolor": color_b, "linewidth": 2})
-    radar.draw_range_labels(ax=ax_radar, fontsize=9)
-    radar.draw_param_labels(ax=ax_radar, fontsize=10)
-    ax_radar.set_title(title, fontsize=20, weight="bold", pad=18)
-
-    legend_handles = [Patch(facecolor=color_a, edgecolor="none", alpha=0.85, label=player_a)]
-    if player_b:
-        legend_handles.append(Patch(facecolor=color_b, edgecolor="none", alpha=0.85, label=player_b))
-    if legend_handles:
-        ax_radar.legend(handles=legend_handles, loc="upper left", bbox_to_anchor=(0.02, 0.98), frameon=False)
-
-    cols_per_row = 2 if len(metrics) > 1 else 1
-    total_rows = max(1, math.ceil(len(metrics) / cols_per_row))
-    sub_gs = GridSpecFromSubplotSpec(
-        nrows=total_rows,
-        ncols=cols_per_row,
-        subplot_spec=gs_main[1, 0],
-        wspace=0.28,
-        hspace=0.35,
-    )
-
-    for i, metric in enumerate(metrics):
-        r = i // cols_per_row
-        c = i % cols_per_row
-        ax = fig.add_subplot(sub_gs[r, c])
-        stats, player_infos = _prepare_metric_bar_context(df, metric, players)
-        _draw_metric_bar_axis(ax, metric, stats, player_infos, colors)
-
-    buf = io.BytesIO()
-    fig.tight_layout()
-    fig.savefig(buf, format="pdf", bbox_inches="tight", pad_inches=0.2)
-    plt.close(fig)
-    buf.seek(0)
-    return buf
-
 
 # ===================== SIDEBAR — Controls =====================
 st.sidebar.header("⚙️ Settings")
@@ -1485,177 +1396,6 @@ with colA:
     p2 = st.selectbox("Player B (optional)", ["—"] + players)
     color_a = st.color_picker("Color A", "#2A9D8F")
     color_b = st.color_picker("Color B", "#E76F51")
-    # Optional images for header
-    player_photo_up = st.file_uploader("Player photo (PNG/JPG) — optional", type=["png","jpg","jpeg"], key="photo")
-    crest_up = st.file_uploader("Club crest (PNG/JPG) — optional", type=["png","jpg","jpeg"], key="crest")
-    player_photo_bytes = player_photo_up.read() if player_photo_up else None
-    crest_bytes = crest_up.read() if crest_up else None
-
-
-
-# === PRO PDF (definition placed before usage) ===
-def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
-                               color_a: str, color_b: str = "#E76F51",
-                               player_photo_bytes: bytes | None = None,
-                               crest_bytes: bytes | None = None) -> io.BytesIO:
-    """
-    PRO layout (v2):
-      - Cabeçalho com *espaços reservados* (quadrados brancos) para FOTO (esq.) e ESCUDO (dir.).
-      - Radar MAIOR (mais espaço vertical).
-      - Barras MENORES e mais "filamentadas" (altura reduzida).
-      - Saída consolidada em uma única página PDF, com grelha dinâmica para alinhar todas as barras.
-    """
-    import matplotlib.pyplot as plt
-    from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
-    from matplotlib.patches import FancyBboxPatch
-    from PIL import Image
-    import io
-    from datetime import datetime
-
-    metrics = (metrics or [])[:16]
-    players = [player_a] + ([player_b] if player_b else [])
-    colors = [color_a] + ([color_b] if player_b else [])
-
-    # --- Dados dos jogadores
-    row_a = df[df["Player"] == player_a].iloc[0]
-    v_a = _values_for_player(row_a, metrics)
-    title_a = _player_label(row_a)
-    a_age = _player_age(row_a)
-    if a_age is not None:
-        title_a = f"{title_a} ({a_age})"
-
-    v_b = None
-    if player_b:
-        row_b = df[df["Player"] == player_b].iloc[0]
-        v_b = _values_for_player(row_b, metrics)
-        title_b = _player_label(row_b)
-        b_age = _player_age(row_b)
-        if b_age is not None:
-            title_b = f"{title_b} ({b_age})"
-        title = f"{title_a}  vs  {title_b}"
-    else:
-        title = title_a
-
-    lowers, uppers = _bounds_from_df(df, metrics)
-    radar = Radar(metrics, lowers, uppers, num_rings=4)
-
-    cols_per_row = 2 if len(metrics) > 1 else 1
-    total_rows = max(1, math.ceil(len(metrics) / cols_per_row))
-    header_rows = 2
-    radar_rows = 7
-    bar_rows = max(total_rows, 3)
-    total_grid_rows = header_rows + radar_rows + bar_rows
-
-    # --- Figura A4
-    fig = plt.figure(figsize=(8.27, 11.69))
-    gs_page = GridSpec(nrows=total_grid_rows, ncols=12, figure=fig)
-
-    # ======= HEADER =======
-    ax_header = fig.add_subplot(gs_page[0:header_rows, :]); ax_header.axis("off")
-    band = FancyBboxPatch((0.01, 0.01), 0.98, 0.98, boxstyle="round,pad=0.02,rounding_size=0.02",
-                          transform=ax_header.transAxes, linewidth=0, facecolor="#0f172a", alpha=0.98)
-    ax_header.add_patch(band)
-
-    # Slots do cabeçalho
-    ax_photo = fig.add_subplot(gs_page[0:header_rows, 0:2]); ax_photo.axis("off")
-    ax_title = fig.add_subplot(gs_page[0:header_rows, 3:9]); ax_title.axis("off")
-    ax_crest = fig.add_subplot(gs_page[0:header_rows, 10:12]); ax_crest.axis("off")
-
-    # Espaços reservados (quadrados brancos) - sempre renderizados, com leve borda cinza
-
-    # Se imagens forem fornecidas, desenhamos POR CIMA do quadrado branco, centralizadas
-    def _draw_image_center(ax, img_bytes):
-        if not img_bytes:
-            return
-        try:
-            im = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
-            ax.imshow(im, extent=(0.18, 0.82, 0.18, 0.82), zorder=3)
-        except Exception:
-            pass  # não quebra
-
-    _draw_image_center(ax_photo, player_photo_bytes)
-    _draw_image_center(ax_crest, crest_bytes)
-
-    # Título (apenas no centro; nada nos slots de foto/escudo)
-    def _wrap_title(txt: str, max_chars_line: int = 36):
-        # simple wrap to two lines max
-        txt = str(txt or "").strip()
-        if len(txt) <= max_chars_line:
-            return [txt], 16
-        # split at spaces
-        words = txt.split()
-        line1 = []
-        while words and len(" ".join(line1 + [words[0]])) <= max_chars_line:
-            line1.append(words.pop(0))
-        line2 = " ".join(words)
-        # reduce fontsize for long titles
-        return [" ".join(line1), line2], 14
-
-    _lines, _fs = _wrap_title(title)
-    if len(_lines) == 1:
-        ax_title.text(0.5, 0.62, _lines[0], ha="center", va="center",
-                      fontsize=_fs, weight="bold", color="white", transform=ax_title.transAxes)
-    else:
-        ax_title.text(0.5, 0.70, _lines[0], ha="center", va="center",
-                      fontsize=_fs, weight="bold", color="white", transform=ax_title.transAxes)
-        ax_title.text(0.5, 0.50, _lines[1], ha="center", va="center",
-                      fontsize=_fs, weight="bold", color="white", transform=ax_title.transAxes)
-    ax_title.text(0.5, 0.28, f"Relatório gerado em {datetime.now().strftime('%d %b %Y')}",
-                  ha="center", va="center", fontsize=9, color="#cbd5e1", transform=ax_title.transAxes)
-
-    # ======= RADAR (maior) =======
-    radar_start = header_rows
-    radar_end = header_rows + radar_rows
-    ax_radar = fig.add_subplot(gs_page[radar_start:radar_end, 0:12])  # eixo cartesiano para mplsoccer.Radar
-    radar.setup_axis(ax=ax_radar)
-    # fundo leve
-    ax_radar.set_facecolor("#f8fafc")
-    # anéis e parâmetros
-    try:
-        radar.draw_circles(ax=ax_radar, facecolor="#f8fafc", edgecolor="#cbd5e1", alpha=0.35)
-    except Exception:
-        pass
-    try:
-        radar.spoke(ax=ax_radar, color="#cbd5e1", linestyle="--", alpha=0.25)
-    except Exception:
-        pass
-    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": _color_with_alpha(color_a, "55"), "edgecolor": color_a, "linewidth": 2})
-    if v_b is not None:
-        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": _color_with_alpha(color_b, "55"), "edgecolor": color_b, "linewidth": 2})
-    radar.draw_range_labels(ax=ax_radar, fontsize=9)
-    radar.draw_param_labels(ax=ax_radar, fontsize=10)
-
-    legend_handles = [Patch(facecolor=color_a, edgecolor="none", alpha=0.85, label=player_a)]
-    if player_b:
-        legend_handles.append(Patch(facecolor=color_b, edgecolor="none", alpha=0.85, label=player_b))
-    if legend_handles:
-        ax_radar.legend(handles=legend_handles, loc="upper left", bbox_to_anchor=(0.01, 0.98), frameon=False)
-
-    # ======= BARRAS (menores/achatadas) =======
-    bars_start = radar_end
-    bars_end = total_grid_rows
-    sub_gs = GridSpecFromSubplotSpec(
-        nrows=total_rows,
-        ncols=cols_per_row,
-        subplot_spec=gs_page[bars_start:bars_end, 0:12],
-        wspace=0.35,
-        hspace=0.28,
-    )
-    for i, metric in enumerate(metrics):
-        r = i // cols_per_row
-        c = i % cols_per_row
-        ax = fig.add_subplot(sub_gs[r, c])
-        stats, player_infos = _prepare_metric_bar_context(df, metric, players)
-        _draw_metric_bar_axis(ax, metric, stats, player_infos, colors)
-
-    buf = io.BytesIO()
-    fig.savefig(buf, format="pdf", bbox_inches="tight", dpi=300)
-    plt.close(fig)
-
-    buf.seek(0)
-    return buf
-
-
 # Download button for combined PNG
 if p1 and metrics_sel:
     png_buf = make_radar_bars_png(
@@ -1671,25 +1411,6 @@ if p1 and metrics_sel:
         data=png_buf.getvalue(),
         file_name="radar_barras.png",
         mime="image/png",
-    )
-
-# Download button for A4 PDF (PRO)
-if p1 and metrics_sel:
-    pdf_buf = make_radar_bars_pdf_a4_pro(
-        df_all,
-        p1,
-        None if p2 == "—" else p2,
-        metrics_sel,
-        color_a,
-        color_b,
-        player_photo_bytes=player_photo_bytes,
-        crest_bytes=crest_bytes,
-    )
-    st.download_button(
-        "⬇️ Download Radar + Barras (PDF A4)",
-        data=pdf_buf.getvalue(),
-        file_name="radar_barras_A4.pdf",
-        mime="application/pdf",
     )
 with colB:
     if p1 and metrics_sel:
@@ -2024,7 +1745,3 @@ def export_player_pdf_a4_bars(df: pd.DataFrame, player_name: str,
                 ax.grid(True, axis="x", linewidth=0.3, alpha=0.4)
             pdf.savefig(fig, bbox_inches="tight")
             plt.close(fig)
-
-
-
-# ===== Enhanced A4 PDF with professional header and optional images =====
