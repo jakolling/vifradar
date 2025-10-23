@@ -1391,9 +1391,30 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
     _draw_image_center(ax_crest, crest_bytes)
 
     # Título (apenas no centro; nada nos slots de foto/escudo)
-    ax_title.text(0.5, 0.68, title, ha="center", va="center",
-                  fontsize=15, weight="bold", color="white", transform=ax_title.transAxes)
-    ax_title.text(0.5, 0.32, f"Relatório gerado em {datetime.now().strftime('%d %b %Y')}",
+    def _wrap_title(txt: str, max_chars_line: int = 36):
+        # simple wrap to two lines max
+        txt = str(txt or "").strip()
+        if len(txt) <= max_chars_line:
+            return [txt], 16
+        # split at spaces
+        words = txt.split()
+        line1 = []
+        while words and len(" ".join(line1 + [words[0]])) <= max_chars_line:
+            line1.append(words.pop(0))
+        line2 = " ".join(words)
+        # reduce fontsize for long titles
+        return [" ".join(line1), line2], 14
+
+    _lines, _fs = _wrap_title(title)
+    if len(_lines) == 1:
+        ax_title.text(0.5, 0.62, _lines[0], ha="center", va="center",
+                      fontsize=_fs, weight="bold", color="white", transform=ax_title.transAxes)
+    else:
+        ax_title.text(0.5, 0.70, _lines[0], ha="center", va="center",
+                      fontsize=_fs, weight="bold", color="white", transform=ax_title.transAxes)
+        ax_title.text(0.5, 0.50, _lines[1], ha="center", va="center",
+                      fontsize=_fs, weight="bold", color="white", transform=ax_title.transAxes)
+    ax_title.text(0.5, 0.28, f"Relatório gerado em {datetime.now().strftime('%d %b %Y')}",
                   ha="center", va="center", fontsize=9, color="#cbd5e1", transform=ax_title.transAxes)
 
     # ======= RADAR (maior) =======
@@ -1441,7 +1462,7 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
             ax.set_xticks([0, 0.5, 1])
             ax.set_xticklabels([])
         # label as text (avoids awkward wrapping of titles)
-        ax.text(0.0, 1.02, label, transform=ax.transAxes, ha="left", va="bottom", fontsize=8)
+        ax.text(0.0, 0.5, label, transform=ax.transAxes, ha="left", va="center", fontsize=8)
         for spine in ["top","right","left"]:
             ax.spines[spine].set_visible(False)
 
@@ -1518,7 +1539,7 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
                         axb.set_xticks([0, 0.5, 1])
                         axb.set_xticklabels([])
                     # draw label as text to avoid wrapping
-                    axb.text(0.0, 1.02, label, transform=axb.transAxes, ha="left", va="bottom", fontsize=8)
+                    axb.text(0.0, 0.5, label, transform=axb.transAxes, ha="left", va="center", fontsize=8)
                     for spine in ["top","right","left"]:
                         axb.spines[spine].set_visible(False)
                 return fig2
