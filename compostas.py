@@ -13,7 +13,6 @@ from mplsoccer import Radar
 from datetime import datetime, date
 
 
-
 # ==== Export: DOCX (radar + barras) ====
 import io as _io_for_docx
 from datetime import datetime as _dt_for_docx
@@ -84,7 +83,6 @@ def make_radar_bars_docx(
     doc.save(out)
     out.seek(0)
     return out
-
 def _player_age(row):
     # Try common age fields
     for key in ["Age", "age"]:
@@ -1646,4 +1644,24 @@ def _choose_default_blocks(df: pd.DataFrame) -> dict:
 
     return blocks
 
+
+
+
+
+# ==== Universal wrapper to prevent TypeError on extra kwargs ====
+try:
+    import inspect as _inspect_for_docx
+    _orig__make_docx = make_radar_bars_docx
+    def make_radar_bars_docx(*args, **kwargs):
+        # se houver parametros inesperados para alguma versão legada, removemos
+        crest_bytes = kwargs.get('crest_bytes', None)
+        try:
+            sig = _inspect_for_docx.signature(_orig__make_docx)
+            if 'crest_bytes' not in sig.parameters:
+                kwargs.pop('crest_bytes', None)
+        except Exception:
+            kwargs.pop('crest_bytes', None)
+        return _orig__make_docx(*args, **kwargs)
+except Exception:
+    pass
 
