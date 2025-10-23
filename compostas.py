@@ -921,83 +921,372 @@ def make_radar_bars_png(df: pd.DataFrame, player_a: str, player_b: str | None, m
     return buf
 
 
-# ======= Build an A4 PDF (Radar 3/4 + Bars 1/4) =======
-def make_radar_bars_pdf_a4(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
-                           color_a: str, color_b: str = "#E76F51") -> io.BytesIO:
+# ======= PDF LAYOUT HELPERS =======
+class _PdfRadarLayout:
+    """Helper that manages the grid used by the PDF exports."""
+
+    def __init__(self, metrics: list[str], include_header: bool = True):
+        self.metrics = list(metrics)
+        self.include_header = include_header
+        self.columns = 2 if len(metrics) > 1 else 1
+        self.bar_rows = max(1, math.ceil(len(metrics) / self.columns))
+
+        header_rows = 2 if include_header else 0
+        radar_rows = 6
+        bar_rows_span = max(2, self.bar_rows * 2)
+
+        ratios: list[float] = []
+        if include_header:
+            ratios.extend([1.1, 0.9])
+        ratios.extend([3.1] * radar_rows)
+        ratios.extend([1.4] * bar_rows_span)
+
+        total_rows = len(ratios)
+        self.figure = plt.figure(figsize=(8.27, 11.69))
+        self.grid = self.figure.add_gridspec(total_rows, 12, height_ratios=ratios)
+
+        current = 0
+        self.header_ax = None
+        if include_header:
+            header_slice = slice(current, current + header_rows)
+            self.header_ax = self.figure.add_subplot(self.grid[header_slice, :])
+            current += header_rows
+
+        radar_slice = slice(current, current + radar_rows)
+        self.radar_ax = self.figure.add_subplot(self.grid[radar_slice, :])
+        current += radar_rows
+
+        bars_slice = slice(current, current + bar_rows_span)
+        bar_spec = GridSpecFromSubplotSpec(
+            self.bar_rows,
+            self.columns,
+            subplot_spec=self.grid[bars_slice, :],
+            wspace=0.4,
+            hspace=0.34,
+        )
+
+        self.bar_axes: list = []
+        total_slots = self.bar_rows * self.columns
+        for slot_idx in range(total_slots):
+            r = slot_idx // self.columns
+            c = slot_idx % self.columns
+            ax = self.figure.add_subplot(bar_spec[r, c])
+            if slot_idx < len(self.metrics):
+                self.bar_axes.append(ax)
+            else:
+                ax.axis('off')
+
+
+def _player_pdf_title(row: pd.Series) -> str:
+    name = str(row.get('Player', '')).strip()
+    age = _player_age(row)
+    if age is not None and age > 0:
+        return f"{name} ({age})"
+    return name
+
+
+def _player_pdf_subtitle(row: pd.Series) -> str:
+    bits: list[str] = []
+    team = row.get('Team') if 'Team' in row.index else None
+    position = row.get('Position') if 'Position' in row.index else None
+    if isinstance(team, str) and team.strip():
+        bits.append(team.strip())
+    if isinstance(position, str) and position.strip():
+        bits.append(position.strip())
+
+    minutes_val = None
+    for col in [
+        'Minutes played',
+        'Minutes',
+        'minutes',
+        'Minutos',
+        'Time played',
+        'Min',
+    ]:
+        if col in row.index and pd.notna(row.get(col)):
+            try:
+                minutes_val = int(float(row[col]))
+            except Exception:
+                try:
+                    minutes_val = int(float(pd.to_numeric(row[col])))
+                except Exception:
+                    minutes_val = row[col]
+            break
+    if minutes_val is not None:
+        bits.append(f"{minutes_val} min")
+    return ' | '.join(bits)
+
+
+def _draw_pdf_radar(ax, radar: Radar, values_a: list[float], values_b: list[float] | None,
+                    color_a: str, color_b: str | None, label_a: str, label_b: str | None):
+    ax.set_facecolor('#f8fafc')
+    radar.setup_axis(ax=ax)
+    try:
+        radar.draw_circles(ax=ax, facecolor='#f8fafc', edgecolor='#cbd5e1', alpha=0.35)
+    except Exception:
+        pass
+    try:
+        radar.spoke(ax=ax, color='#cbd5e1', linestyle='--', alpha=0.25)
+    except Exception:
+        pass
+
+    radar.draw_radar(values_a, ax=ax, kwargs_radar={
+        'facecolor': _color_with_alpha(color_a, '55'),
+        'edgecolor': color_a,
+        'linewidth': 2,
+    })
+    if values_b is not None and color_b is not None:
+        radar.draw_radar(values_b, ax=ax, kwargs_radar={
+            'facecolor': _color_with_alpha(color_b, '55'),
+            'edgecolor': color_b,
+            'linewidth': 2,
+        })
+    radar.draw_range_labels(ax=ax, fontsize=9)
+    radar.draw_param_labels(ax=ax, fontsize=10)
+
+    handles = [Patch(facecolor=color_a, edgecolor='none', alpha=0.85, label=label_a)]
+    if values_b is not None and color_b is not None and label_b:
+        handles.append(Patch(facecolor=color_b, edgecolor='none', alpha=0.85, label=label_b))
+    if handles:
+        ax.legend(handles=handles, loc='upper left', bbox_to_anchor=(0.02, 0.98), frameon=False)
+    ax.set_title('Radar de métricas selecionadas', fontsize=12, pad=12, loc='left')
+
+
+def _render_basic_pdf_header(ax, title: str, info_lines: list[str]):
+    from matplotlib.patches import Rectangle
+
+    if ax is None:
+        return
+
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis('off')
+    ax.add_patch(Rectangle((0, 0), 1, 1, transform=ax.transAxes, facecolor='#0f172a', edgecolor='none', zorder=1))
+    ax.add_patch(Rectangle((0, 0), 1, 0.08, transform=ax.transAxes, facecolor='#1e293b', edgecolor='none', alpha=0.6, zorder=2))
+
+    ax.text(0.03, 0.72, title, fontsize=16, weight='bold', color='white', transform=ax.transAxes, zorder=3)
+    y = 0.50
+    for line in [l for l in info_lines if l]:
+        ax.text(0.03, y, line, fontsize=10, color='#cbd5e1', transform=ax.transAxes, zorder=3)
+        y -= 0.14
+
+    ax.text(
+        0.97,
+        0.16,
+        datetime.now().strftime('%d %b %Y'),
+        fontsize=9,
+        color='#94a3b8',
+        transform=ax.transAxes,
+        ha='right',
+        zorder=3,
+    )
+
+
+def _render_pro_pdf_header(ax, title: str, player_lines: list[str], metrics_line: str,
+                           player_photo_bytes: bytes | None, crest_bytes: bytes | None):
+    from matplotlib.patches import FancyBboxPatch
+    from PIL import Image
+
+    if ax is None:
+        return
+
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis('off')
+
+    band = FancyBboxPatch((0.02, 0.08), 0.96, 0.84, boxstyle='round,pad=0.02,rounding_size=0.03',
+                          transform=ax.transAxes, facecolor='#0f172a', edgecolor='none', zorder=1)
+    ax.add_patch(band)
+
+    def _draw_side_image(data: bytes | None, center_x: float, label: str):
+        size = 0.22
+        center_y = 0.55
+
+        def _placeholder():
+            ph = FancyBboxPatch(
+                (center_x - size / 2, center_y - size / 2),
+                size,
+                size,
+                boxstyle='round,pad=0.015,rounding_size=0.025',
+                transform=ax.transAxes,
+                facecolor='#e2e8f0',
+                edgecolor='none',
+                alpha=0.55,
+                zorder=2,
+            )
+            ax.add_patch(ph)
+            ax.text(center_x, center_y, label, ha='center', va='center', fontsize=9, color='#64748b',
+                    transform=ax.transAxes, zorder=3)
+
+        if not data:
+            _placeholder()
+            return
+        try:
+            img = Image.open(io.BytesIO(data)).convert('RGBA')
+        except Exception:
+            _placeholder()
+            return
+
+        width, height = img.size
+        if width == 0 or height == 0:
+            _placeholder()
+            return
+
+        scale = size / max(width, height)
+        display_w = width * scale
+        display_h = height * scale
+        x0 = center_x - display_w / 2
+        x1 = center_x + display_w / 2
+        y0 = center_y - display_h / 2
+        y1 = center_y + display_h / 2
+        ax.imshow(img, extent=(x0, x1, y0, y1), zorder=3)
+
+    _draw_side_image(player_photo_bytes, 0.12, 'FOTO')
+    _draw_side_image(crest_bytes, 0.88, 'ESCUDO')
+
+    ax.text(0.5, 0.74, title, fontsize=18, weight='bold', color='white', ha='center', va='center',
+            transform=ax.transAxes, zorder=4)
+
+    y = 0.48
+    for line in [l for l in player_lines if l]:
+        ax.text(0.5, y, line, fontsize=11, color='#cbd5e1', ha='center', va='center',
+                transform=ax.transAxes, zorder=4)
+        y -= 0.12
+
+    if metrics_line:
+        ax.text(0.5, 0.20, metrics_line, fontsize=9, color='#94a3b8', ha='center', va='center',
+                transform=ax.transAxes, zorder=4)
+
+    ax.text(0.03, 0.16, datetime.now().strftime('%d %b %Y'), fontsize=9, color='#94a3b8',
+            transform=ax.transAxes, zorder=4)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+
+
+def _prepare_pdf_context(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
+                         color_a: str, color_b: str) -> dict:
     metrics = (metrics or [])[:16]
-    players = [player_a] + ([player_b] if player_b else [])
-    colors = [color_a] + ([color_b] if player_b else [])
+    row_a = df[df['Player'] == player_a].iloc[0]
+    values_a = _values_for_player(row_a, metrics)
+
+    row_b = None
+    values_b = None
+    if player_b:
+        row_b = df[df['Player'] == player_b].iloc[0]
+        values_b = _values_for_player(row_b, metrics)
 
     lowers, uppers = _bounds_from_df(df, metrics)
     radar = Radar(metrics, lowers, uppers, num_rings=4)
 
-    row_a = df[df["Player"] == player_a].iloc[0]
-    v_a = _values_for_player(row_a, metrics)
+    colors = [color_a] + ([color_b] if player_b else [])
+    players = [player_a] + ([player_b] if player_b else [])
 
-    v_b = None
-    title_a = _player_label(row_a)
-    age_a = _player_age(row_a)
-    if age_a is not None:
-        title_a = f"{title_a} ({age_a})"
+    return {
+        'metrics': metrics,
+        'row_a': row_a,
+        'row_b': row_b,
+        'values_a': values_a,
+        'values_b': values_b,
+        'radar': radar,
+        'colors': colors,
+        'players': players,
+    }
+
+
+# ======= Build an A4 PDF (Radar + Bars) =======
+def make_radar_bars_pdf_a4(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
+                           color_a: str, color_b: str = '#E76F51') -> io.BytesIO:
+    ctx = _prepare_pdf_context(df, player_a, player_b, metrics, color_a, color_b)
+    layout = _PdfRadarLayout(ctx['metrics'], include_header=True)
+
+    title_a = _player_pdf_title(ctx['row_a'])
+    subtitle_a = _player_pdf_subtitle(ctx['row_a'])
     title = title_a
-    if player_b:
-        row_b = df[df["Player"] == player_b].iloc[0]
-        v_b = _values_for_player(row_b, metrics)
-        title_b = _player_label(row_b)
-        age_b = _player_age(row_b)
-        if age_b is not None:
-            title_b = f"{title_b} ({age_b})"
+    info_lines = [f"Jogador A • {subtitle_a}" if subtitle_a else 'Jogador A']
+
+    label_b = None
+    color_b_val = None
+    if ctx['row_b'] is not None:
+        title_b = _player_pdf_title(ctx['row_b'])
+        subtitle_b = _player_pdf_subtitle(ctx['row_b'])
         title = f"{title_a} vs {title_b}"
+        if subtitle_b:
+            info_lines.append(f"Jogador B • {subtitle_b}")
+        else:
+            info_lines.append('Jogador B')
+        label_b = ctx['players'][1]
+        color_b_val = ctx['colors'][1]
+    info_lines.append(f"Métricas selecionadas: {len(ctx['metrics'])}")
 
-    fig = plt.figure(figsize=(8.27, 11.69))
-    gs_main = GridSpec(nrows=2, ncols=1, height_ratios=[2.5, 1.4], figure=fig)
+    _render_basic_pdf_header(layout.header_ax, title, info_lines)
 
-    ax_radar = fig.add_subplot(gs_main[0, 0])
-    ax_radar.set_facecolor("#f8fafc")
-    radar.setup_axis(ax=ax_radar)
-    try:
-        radar.draw_circles(ax=ax_radar, facecolor="#f8fafc", edgecolor="#cbd5e1", alpha=0.35)
-        radar.spoke(ax=ax_radar, color="#cbd5e1", linestyle="--", alpha=0.25)
-    except Exception:
-        pass
-
-    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": _color_with_alpha(color_a, "44"), "edgecolor": color_a, "linewidth": 2})
-    if v_b is not None:
-        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": _color_with_alpha(color_b, "44"), "edgecolor": color_b, "linewidth": 2})
-    radar.draw_range_labels(ax=ax_radar, fontsize=9)
-    radar.draw_param_labels(ax=ax_radar, fontsize=10)
-    ax_radar.set_title(title, fontsize=20, weight="bold", pad=18)
-
-    legend_handles = [Patch(facecolor=color_a, edgecolor="none", alpha=0.85, label=player_a)]
-    if player_b:
-        legend_handles.append(Patch(facecolor=color_b, edgecolor="none", alpha=0.85, label=player_b))
-    if legend_handles:
-        ax_radar.legend(handles=legend_handles, loc="upper left", bbox_to_anchor=(0.02, 0.98), frameon=False)
-
-    cols_per_row = 2 if len(metrics) > 1 else 1
-    total_rows = max(1, math.ceil(len(metrics) / cols_per_row))
-    sub_gs = GridSpecFromSubplotSpec(
-        nrows=total_rows,
-        ncols=cols_per_row,
-        subplot_spec=gs_main[1, 0],
-        wspace=0.28,
-        hspace=0.35,
+    _draw_pdf_radar(
+        layout.radar_ax,
+        ctx['radar'],
+        ctx['values_a'],
+        ctx['values_b'],
+        ctx['colors'][0],
+        color_b_val,
+        ctx['players'][0],
+        label_b,
     )
 
-    for i, metric in enumerate(metrics):
-        r = i // cols_per_row
-        c = i % cols_per_row
-        ax = fig.add_subplot(sub_gs[r, c])
-        stats, player_infos = _prepare_metric_bar_context(df, metric, players)
-        _draw_metric_bar_axis(ax, metric, stats, player_infos, colors)
+    for ax, metric in zip(layout.bar_axes, ctx['metrics']):
+        stats, player_infos = _prepare_metric_bar_context(df, metric, ctx['players'])
+        _draw_metric_bar_axis(ax, metric, stats, player_infos, ctx['colors'])
 
     buf = io.BytesIO()
-    fig.tight_layout()
-    fig.savefig(buf, format="pdf", bbox_inches="tight", pad_inches=0.2)
-    plt.close(fig)
+    layout.figure.savefig(buf, format='pdf', bbox_inches='tight', pad_inches=0.2)
+    plt.close(layout.figure)
     buf.seek(0)
     return buf
 
+
+def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
+                               color_a: str, color_b: str = '#E76F51',
+                               player_photo_bytes: bytes | None = None,
+                               crest_bytes: bytes | None = None) -> io.BytesIO:
+    ctx = _prepare_pdf_context(df, player_a, player_b, metrics, color_a, color_b)
+    layout = _PdfRadarLayout(ctx['metrics'], include_header=True)
+
+    title_a = _player_pdf_title(ctx['row_a'])
+    subtitle_a = _player_pdf_subtitle(ctx['row_a'])
+    title = title_a
+    player_lines = [subtitle_a]
+
+    label_b = None
+    color_b_val = None
+    if ctx['row_b'] is not None:
+        title_b = _player_pdf_title(ctx['row_b'])
+        subtitle_b = _player_pdf_subtitle(ctx['row_b'])
+        title = f"{title_a} vs {title_b}"
+        player_lines.append(subtitle_b)
+        label_b = ctx['players'][1]
+        color_b_val = ctx['colors'][1]
+
+    metrics_line = f"{len(ctx['metrics'])} métricas no radar"
+    _render_pro_pdf_header(layout.header_ax, title, player_lines, metrics_line, player_photo_bytes, crest_bytes)
+
+    _draw_pdf_radar(
+        layout.radar_ax,
+        ctx['radar'],
+        ctx['values_a'],
+        ctx['values_b'],
+        ctx['colors'][0],
+        color_b_val,
+        ctx['players'][0],
+        label_b,
+    )
+
+    for ax, metric in zip(layout.bar_axes, ctx['metrics']):
+        stats, player_infos = _prepare_metric_bar_context(df, metric, ctx['players'])
+        _draw_metric_bar_axis(ax, metric, stats, player_infos, ctx['colors'])
+
+    buf = io.BytesIO()
+    layout.figure.savefig(buf, format='pdf', bbox_inches='tight', dpi=300)
+    plt.close(layout.figure)
+    buf.seek(0)
+    return buf
 
 # ===================== SIDEBAR — Controls =====================
 st.sidebar.header("⚙️ Settings")
