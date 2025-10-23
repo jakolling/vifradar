@@ -1,4 +1,3 @@
-# === VIFRADAR READY BUILD 2025-10-23T18:41:21.046022Z ===
 from __future__ import annotations
 
 import io
@@ -1275,7 +1274,8 @@ def plot_radar(df: pd.DataFrame, player_a: str, player_b: Optional[str], metrics
     v_a = _values_for_player(row_a, metrics)
     v_b = _values_for_player(row_b, metrics) if row_b is not None else None
 
-    fig, ax = plt.subplots(figsize=(8, 8))
+    fig, ax = _ = _radar_factory(len(metrics))
+    fig, ax = plt.subplots(figsize=(8, 8), subplot_kw={'projection': 'radar'})
     radar.setup_axis(ax=ax)
     radar.draw_circles(ax=ax, facecolor="#f3f3f3", edgecolor="#c9c9c9", alpha=0.18)
     try:
