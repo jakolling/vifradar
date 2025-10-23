@@ -7,9 +7,10 @@ import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
-from matplotlib.patches import Patch
+from matplotlib.patches import Patch, FancyBboxPatch
 from matplotlib.ticker import FuncFormatter, MaxNLocator
 from mplsoccer import Radar
+from PIL import Image
 
 
 from datetime import datetime, date
@@ -1535,13 +1536,6 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
       - Barras MENORES e mais "filamentadas" (altura reduzida).
       - Saída consolidada em uma única página PDF, com grelha dinâmica para alinhar todas as barras.
     """
-    import matplotlib.pyplot as plt
-    from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
-    from matplotlib.patches import FancyBboxPatch
-    from PIL import Image
-    import io
-    from datetime import datetime
-
     metrics = (metrics or [])[:16]
     players = [player_a] + ([player_b] if player_b else [])
     colors = [color_a] + ([color_b] if player_b else [])
