@@ -1302,6 +1302,12 @@ with colA:
     p2 = st.selectbox("Player B (optional)", ["—"] + players)
     color_a = st.color_picker("Color A", "#2A9D8F")
     color_b = st.color_picker("Color B", "#E76F51")
+    # Optional images for header
+    player_photo_up = st.file_uploader("Player photo (PNG/JPG) — optional", type=["png","jpg","jpeg"], key="photo")
+    crest_up = st.file_uploader("Club crest (PNG/JPG) — optional", type=["png","jpg","jpeg"], key="crest")
+    player_photo_bytes = player_photo_up.read() if player_photo_up else None
+    crest_bytes = crest_up.read() if crest_up else None
+
 # Download button for combined PNG
 if p1 and metrics_sel:
     png_buf = make_radar_bars_png(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b)
@@ -1310,7 +1316,7 @@ if p1 and metrics_sel:
 
 # Download button for A4 PDF
 if p1 and metrics_sel:
-    pdf_buf = make_radar_bars_pdf_a4(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b)
+    pdf_buf = make_radar_bars_pdf_a4(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b, player_photo_bytes=player_photo_bytes, crest_bytes=crest_bytes)
     st.download_button("⬇️ Download Radar + Barras (PDF A4)", data=pdf_buf.getvalue(),
                        file_name="radar_barras_A4.pdf", mime="application/pdf")
 
@@ -1656,3 +1662,162 @@ def export_player_pdf_a4_bars(df: pd.DataFrame, player_name: str,
                 ax.grid(True, axis="x", linewidth=0.3, alpha=0.4)
             pdf.savefig(fig, bbox_inches="tight")
             plt.close(fig)
+
+
+
+# ===== Enhanced A4 PDF with professional header and optional images =====
+def make_radar_bars_pdf_a4(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
+                           color_a: str, color_b: str = "#E76F51",
+                           player_photo_bytes: bytes | None = None,
+                           crest_bytes: bytes | None = None) -> io.BytesIO:
+    """
+    Gera um PDF A4 com layout profissional:
+      - Header com foto (esq), título (centro) e escudo (dir)
+      - Radar amplo
+      - Barras de ranking em grid
+    Se foto/escudo não forem fornecidos, o header sai limpo (sem placeholders).
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
+    from matplotlib.patches import FancyBboxPatch, Circle
+    from PIL import Image
+    import numpy as np
+    import io
+    from datetime import datetime
+
+    metrics = (metrics or [])[:16]
+
+    # --- Dados
+    row_a = df[df["Player"] == player_a].iloc[0]
+    v_a = _values_for_player(row_a, metrics)
+    title_a = str(row_a.get("Player", player_a))
+    age_a = row_a.get("Age", row_a.get("BirthDate"))
+    try:
+        from datetime import date
+        def _parse_age(v):
+            if v is None: return None
+            if isinstance(v, (int,float)): return int(v) if v>0 else None
+            from datetime import datetime
+            s=str(v)
+            if s.isdigit(): return int(s)
+            try:
+                b=datetime.strptime(s, "%Y-%m-%d").date()
+                today=date.today()
+                return today.year-b.year-((today.month,today.day)<(b.month,b.day))
+            except Exception:
+                return None
+        aa = _parse_age(age_a)
+        if aa: title_a += f" ({aa})"
+    except Exception:
+        pass
+
+    v_b=None; title_b=None
+    if player_b:
+        row_b = df[df["Player"] == player_b].iloc[0]
+        v_b = _values_for_player(row_b, metrics)
+        title_b = str(row_b.get("Player", player_b))
+        age_b = row_b.get("Age", row_b.get("BirthDate"))
+        bb = None
+        try:
+            bb = _parse_age(age_b)
+        except Exception:
+            bb=None
+        if bb: title_b += f" ({bb})"
+
+    lowers, uppers = _bounds_from_df(df, metrics)
+    radar = Radar(metrics, lowers, uppers, num_rings=4)
+
+    # --- Figura A4
+    fig = plt.figure(figsize=(8.27, 11.69))
+    gs_page = GridSpec(nrows=12, ncols=12, figure=fig)
+
+    # ===================== HEADER =====================
+    ax_header = fig.add_subplot(gs_page[0:2, :]); ax_header.axis("off")
+    pad = 0.01
+    box = FancyBboxPatch((pad, pad), 1 - 2*pad, 1 - 2*pad,
+                         boxstyle="round,pad=0.02,rounding_size=0.02",
+                         transform=ax_header.transAxes, linewidth=0,
+                         facecolor="#0f172a", alpha=0.98)
+    ax_header.add_patch(box)
+
+    # Slots header
+    ax_photo = fig.add_subplot(gs_page[0:2, 0:2]); ax_photo.axis("off")
+    ax_title = fig.add_subplot(gs_page[0:2, 2:10]); ax_title.axis("off")
+    ax_crest = fig.add_subplot(gs_page[0:2, 10:12]); ax_crest.axis("off")
+
+    # Foto circular (se fornecida)
+    if player_photo_bytes:
+        circ = Circle((0.5, 0.5), radius=0.42, transform=ax_photo.transAxes,
+                      facecolor="#0f172a", edgecolor="#e5e7eb", linewidth=1.0)
+        ax_photo.add_patch(circ)
+        try:
+            im = Image.open(io.BytesIO(player_photo_bytes)).convert("RGBA")
+            ax_photo.imshow(im, extent=(0.08, 0.92, 0.08, 0.92), zorder=3)
+        except Exception:
+            pass
+
+    # Escudo (se fornecido)
+    if crest_bytes:
+        rect = FancyBboxPatch((0.08, 0.08), 0.84, 0.84,
+                              boxstyle="round,pad=0.02,rounding_size=0.03",
+                              transform=ax_crest.transAxes, linewidth=1.0,
+                              facecolor="#0b1220", edgecolor="#1f2937")
+        ax_crest.add_patch(rect)
+        try:
+            im = Image.open(io.BytesIO(crest_bytes)).convert("RGBA")
+            ax_crest.imshow(im, extent=(0.12, 0.88, 0.12, 0.88), zorder=3)
+        except Exception:
+            pass
+
+    # Títulos
+    title = title_a if not title_b else f"{title_a}  vs  {title_b}"
+    ax_title.text(0.5, 0.62, title, ha="center", va="center",
+                  fontsize=16, weight="bold", color="white", transform=ax_title.transAxes)
+    ax_title.text(0.5, 0.30, f"Relatório gerado em {datetime.now().strftime('%d %b %Y')}",
+                  ha="center", va="center", fontsize=9, color="#cbd5e1", transform=ax_title.transAxes)
+
+    # ===================== RADAR =====================
+    ax_radar = fig.add_subplot(gs_page[2:8, 0:12], projection="polar")
+    radar.setup_axis(ax=ax_radar)
+    radar.draw_circles(ax=ax_radar, facecolor="#f8fafc", edgecolor="#cbd5e1", alpha=0.35)
+    try:
+        radar.spoke(ax=ax_radar, color="#cbd5e1", linestyle="--", alpha=0.25)
+    except Exception:
+        pass
+    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": color_a, "edgecolor": color_a, "linewidth": 2})
+    if v_b is not None:
+        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": color_b, "edgecolor": color_b, "linewidth": 2})
+    radar.draw_range_labels(ax=ax_radar, fontsize=9)
+    radar.draw_param_labels(ax=ax_radar, fontsize=10)
+
+    # ===================== BARRAS =====================
+    cols_per_row = 3
+    total_rows = min((len(metrics) + cols_per_row - 1) // cols_per_row, 4)
+    sub_gs = GridSpecFromSubplotSpec(nrows=total_rows, ncols=cols_per_row,
+                                     subplot_spec=gs_page[8:12, 0:12], wspace=0.35, hspace=0.55)
+
+    def _draw_bar(ax, m, player_name):
+        info = _metric_rank_info(df, m, player_name)
+        rk, tot, norm = info.get("rank"), info.get("total"), info.get("norm")
+        label = f"{m} — {rk}/{tot}" if rk is not None else f"{m}"
+        ax.barh([0], [norm if norm is not None else 0])
+        ax.set_xlim(0, 1)
+        ax.set_yticks([])
+        ax.set_xticks([0, 0.5, 1])
+        ax.set_xticklabels(["0%","50%","100%"], fontsize=7)
+        ax.set_title(label, fontsize=9, pad=2)
+        for spine in ["top","right","left"]:
+            ax.spines[spine].set_visible(False)
+
+    for i, m in enumerate(metrics[:cols_per_row * total_rows]):
+        r = i // cols_per_row
+        c = i % cols_per_row
+        ax = fig.add_subplot(sub_gs[r, c])
+        _draw_bar(ax, m, player_a)
+
+    # ===================== EXPORT =====================
+    buf = io.BytesIO()
+    fig.savefig(buf, format="pdf", dpi=300, bbox_inches="tight", pad_inches=0.25)
+    plt.close(fig)
+    buf.seek(0)
+    return buf
