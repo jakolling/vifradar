@@ -112,38 +112,94 @@ class Radar:
 # --- End Radar helpers ---
 
 # === PRO PDF function (placed near top) ===
-def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: Optional[str], metrics: List[str],
-                           color_a: str, color_b: str = "#E76F51",
-                           player_photo_bytes: Optional[bytes] = None, crest_bytes: Optional[bytes] = None) -> io.BytesIO:
-    metrics = (metrics or [])[:16]
+def make_radar_bars_pdf_a4_pro(
+    df: pd.DataFrame,
+    player_a: str,
+    player_b: Optional[str],
+    metrics: List[str],
+    color_a: str,
+    color_b: str = "#E76F51",
+    player_photo_bytes: Optional[bytes] = None,
+    crest_bytes: Optional[bytes] = None,
+) -> io.BytesIO:
+    """
+    PRO PDF (A4 retrato): Cabeçalho + Radar (3/4) + Barras (1/4 somente Jogador A)
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
+
+    # --- validação e seleção de métricas ---
+    if not metrics:
+        raise ValueError("Selecione pelo menos 3 métricas.")
+    metrics = list(metrics)[:16]
+
+    # localizar linhas dos jogadores
+    def _find_row(df, name):
+        if not name:
+            return None
+        for col in ["Player", "player", "Name", "name", "Jogador"]:
+            if col in df.columns:
+                hits = df[df[col] == name]
+                if len(hits) > 0:
+                    return hits.iloc[0]
+        return None
+
+    row_a = _find_row(df, player_a)
+    if row_a is None:
+        raise ValueError(f"Jogador A '{player_a}' não encontrado.")
+    row_b = _find_row(df, player_b) if player_b else None
+
     lowers, uppers = _bounds_from_df(df, metrics)
     radar = Radar(metrics, lowers, uppers, num_rings=4)
 
-    row_a = df[df["Player"] == player_a].iloc[0]
     v_a = _values_for_player(row_a, metrics)
+    v_b = _values_for_player(row_b, metrics) if row_b is not None else None
 
-    v_b = None
+    # --- figura A4 (retr.) ---
+    fig = plt.figure(figsize=(8.27, 11.69), constrained_layout=False)
+    gs0 = GridSpec(nrows=3, ncols=1, height_ratios=[0.55, 2.6, 1.0], figure=fig)
+
+    # ----- Cabeçalho -----
+    ax_head = fig.add_subplot(gs0[0, 0])
+    ax_head.axis("off")
+
     title_a = _player_label(row_a)
-    title = title_a
     age_a = _player_age(row_a)
     if age_a is not None:
         title_a = f"{title_a} ({age_a})"
+
     title = title_a
-    if player_b:
-        row_b = df[df["Player"] == player_b].iloc[0]
-        v_b = _values_for_player(row_b, metrics)
+    if row_b is not None:
         title_b = _player_label(row_b)
         age_b = _player_age(row_b)
         if age_b is not None:
             title_b = f"{title_b} ({age_b})"
         title = f"{title_a} vs {title_b}"
 
-    # A4 portrait in inches
-    fig = plt.figure(figsize=(8.27, 11.69), constrained_layout=True)
-    gs_main = GridSpec(nrows=2, ncols=1, height_ratios=[2.6, 1], figure=fig)
+    ax_head.text(0.5, 0.62, title, ha="center", va="center", fontsize=18, fontweight="bold", transform=ax_head.transAxes)
+    ax_head.text(0.5, 0.20, "Composite Radar + Ranking (A4)", ha="center", va="center", fontsize=9, alpha=0.7, transform=ax_head.transAxes)
 
-    # ---- Radar area (3/4 of the page) ----
-    ax_radar = fig.add_subplot(gs_main[0, 0])
+    # Imagens opcionais
+    def _draw_image(bytes_data, xywh):
+        if not bytes_data:
+            return
+        import matplotlib.image as mpimg
+        from io import BytesIO
+        try:
+            is_png = bytes_data[:8] == b"\x89PNG\r\n\x1a\n"
+            fmt = "png" if is_png else None
+            img = mpimg.imread(BytesIO(bytes_data), format=fmt)
+            im_ax = fig.add_axes(xywh)
+            im_ax.imshow(img)
+            im_ax.axis("off")
+        except Exception:
+            pass
+
+    _draw_image(player_photo_bytes, [0.08, 0.86, 0.18, 0.10])  # topo-esquerda
+    _draw_image(crest_bytes,         [0.74, 0.86, 0.18, 0.10])  # topo-direita
+
+    # ----- Radar (3/4) -----
+    ax_radar = plt.subplot(gs0[1, 0], projection='radar')
     radar.setup_axis(ax=ax_radar)
     radar.draw_circles(ax=ax_radar, facecolor="#f3f3f3", edgecolor="#c9c9c9", alpha=0.18)
     try:
@@ -151,17 +207,60 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: Option
     except Exception:
         pass
 
-    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": color_a+"33", "edgecolor": color_a, "linewidth": 2})
+    # polígonos
+    def _add_alpha(hex_color: str, alpha: float) -> str:
+        if not isinstance(hex_color, str) or not hex_color.startswith("#"):
+            return hex_color
+        c = hex_color.lstrip("#")
+        if len(c) == 8:
+            return "#" + c
+        if len(c) != 6:
+            return "#" + c
+        a = max(0, min(255, int(round(alpha * 255))))
+        return f"#{c}{a:02X}"
+
+    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": _add_alpha(color_a, 0.22), "edgecolor": color_a, "linewidth": 2})
     if v_b is not None:
-        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": color_b+"33", "edgecolor": color_b, "linewidth": 2})
+        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": _add_alpha(color_b, 0.22), "edgecolor": color_b, "linewidth": 2})
     radar.draw_range_labels(ax=ax_radar, fontsize=9)
     radar.draw_param_labels(ax=ax_radar, fontsize=10)
-    ax_radar.set_title(title, fontsize=20, weight="bold", pad=18)
 
-    # ---- Bars area (1/4 of the page) ----
+    # ----- Barras (1/4) – SOMENTE Jogador A -----
     cols_per_row = 3
-    total_bar_rows = (len(metrics) + cols_per_row - 1) // cols_per_row
-    sub_gs = GridSpecFromSubplotSpec(nrows=total_bar_rows, ncols=cols_per_row, subplot_spec=gs_main[1, 0])
+    total_bar_rows = max(1, (len(metrics) + cols_per_row - 1) // cols_per_row)
+    gs_bars = GridSpecFromSubplotSpec(nrows=total_bar_rows, ncols=cols_per_row, subplot_spec=gs0[2, 0])
+
+    # tenta identificar a coluna de nome para rank info
+    name_col = None
+    for col in ["Player", "player", "Name", "name", "Jogador"]:
+        if col in df.columns:
+            name_col = col
+            break
+    p_name = str(row_a[name_col]) if name_col else _player_label(row_a)
+
+    for i, m in enumerate(metrics):
+        r = i // cols_per_row
+        c = i % cols_per_row
+        ax = fig.add_subplot(gs_bars[r, c])
+        info = _metric_rank_info(df, m, p_name)
+        rk, tot, norm = info["rank"], info["total"], info["norm"]
+        label = f"{m} — {rk}/{tot}" if rk is not None else f"{m} — n/a"
+        ax.barh([0], [norm])
+        ax.set_xlim(0, 1)
+        ax.set_yticks([])
+        ax.set_xticks([0, 0.5, 1])
+        ax.set_xticklabels(["0%","50%","100%"], fontsize=7)
+        ax.set_title(label, fontsize=9, pad=2)
+        for spine in ["top","right","left"]:
+            ax.spines[spine].set_visible(False)
+
+    # ----- salvar PDF -----
+    buf = io.BytesIO()
+    fig.savefig(buf, format="pdf", bbox_inches="tight", pad_inches=0.2)
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
 
     def _draw_bar(ax, m, player_name):
         info = _metric_rank_info(df, m, player_name)
