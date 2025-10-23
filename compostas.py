@@ -1430,49 +1430,6 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
     radar.draw_range_labels(ax=ax_radar, fontsize=9)
     radar.draw_param_labels(ax=ax_radar, fontsize=10)
 
-    # ======= BARRAS (menores/achatadas) =======
-    # Área de barras reduzida: [9:12] (antes era [8:12])
-    cols_per_row = 3
-    total_rows = min((len(metrics) + cols_per_row - 1) // cols_per_row, 3)  # limite 3 linhas
-    sub_gs = GridSpecFromSubplotSpec(nrows=total_rows, ncols=cols_per_row,
-                                     subplot_spec=gs_page[9:12, 0:12], wspace=0.16, hspace=0.12)
-
-    def _draw_bar_slim(ax, m, player_name, row_idx, total_rows_in_grid):
-        info = _metric_rank_info(df, m, player_name)
-        rk, tot, norm = info.get("rank"), info.get("total"), info.get("norm")
-        label = f"{m} — {rk}/{tot}" if rk is not None else f"{m}"
-        ax.barh([0], [norm if norm is not None else 0], height=0.12)
-        ax.set_xlim(0, 1)
-        ax.set_ylim(-0.6, 0.6)
-        ax.set_yticks([])
-        # ticks only on bottom row for cleanliness
-        if row_idx == (total_rows_in_grid - 1):
-            ax.set_xticks([0, 0.5, 1])
-            ax.set_xticklabels(["0%","50%","100%"], fontsize=7)
-            ax.tick_params(axis="x", pad=0)
-        else:
-            ax.set_xticks([0, 0.5, 1])
-            ax.set_xticklabels([])
-        # label as text (avoids awkward wrapping of titles)
-        ax.text(0.0, 0.5, label, transform=ax.transAxes, ha="left", va="center", fontsize=8,
-       bbox={"facecolor": "white", "edgecolor": "none", "pad": 0.2}, zorder=5)
-        for spine in ["top","right","left"]:
-            ax.spines[spine].set_visible(False)
-
-    for i, m in enumerate(metrics[:cols_per_row * total_rows]):
-        r = i // cols_per_row
-        c = i % cols_per_row
-        ax = fig.add_subplot(sub_gs[r, c])
-        _draw_bar_slim(ax, m, player_a, r, total_rows)
-
-    # ======= EXPORT (multi-page if needed) =======
-    from matplotlib.backends.backend_pdf import PdfPages
-
-    # Compute capacity for first page
-    first_capacity = cols_per_row * total_rows
-    remaining_metrics = metrics[first_capacity:]
-
-    buf = io.BytesIO()
     with PdfPages(buf) as pdf:
         pdf.savefig(fig, bbox_inches="tight", dpi=300)
         plt.close(fig)
