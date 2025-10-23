@@ -88,16 +88,19 @@ class Radar:
             ax.plot([t, t], [0, 1], **kwargs)
     def draw_radar(self, values, ax=None, kwargs_radar=None):
         import matplotlib.pyplot as plt
+        import numpy as np
         if ax is None:
             ax = plt.gca()
         vals = self._scale(values)
         angles = np.concatenate((self.theta, [self.theta[0]]))
         vals = np.concatenate((vals, [vals[0]]))
-        kwargs_radar = kwargs_radar or {"alpha": 0.35, "linewidth": 2}
-        ax.plot(angles, vals, **kwargs_radar)
-        fc = kwargs_radar.get("facecolor", None)
-        if fc is not None:
-            ax.fill(angles, vals, facecolor=fc, alpha=0.25)
+        kw = dict(kwargs_radar or {})
+        face = kw.pop('facecolor', None)
+        ax.plot(angles, vals, **kw)
+        if face is not None:
+            alpha = kw.get('alpha', 0.25)
+            ax.fill(angles, vals, facecolor=face, alpha=alpha)
+
     def draw_param_labels(self, ax=None, fontsize=10):
         import matplotlib.pyplot as plt
         if ax is None:
@@ -110,6 +113,7 @@ class Radar:
         for angle, p, lo, up in zip(self.theta, self.params, self.lowers, self.uppers):
             ax.text(angle, 1.05, f"[{lo:.2f} – {up:.2f}]", fontsize=fontsize, ha='center', va='center')
 # --- End Radar helpers ---
+
 
 # --- RadarPRO (to avoid collision with mplsoccer.Radar) ---
 class RadarPRO:
@@ -140,8 +144,14 @@ class RadarPRO:
         return ax
 
     def draw_circles(self, ax, **kwargs):
-        for r in __import__('numpy').linspace(0.25, 1.0, self.num_rings):
-            ax.plot(self.theta, [r]*len(self.theta), **kwargs)
+        import numpy as np
+        # sanitize kwargs for Line2D
+        color = kwargs.pop('edgecolor', kwargs.pop('color', '#c9c9c9'))
+        alpha = kwargs.pop('alpha', 0.18)
+        linestyle = kwargs.pop('linestyle', '-')
+        linewidth = kwargs.pop('linewidth', 1)
+        for r in np.linspace(0.25, 1.0, self.num_rings):
+            ax.plot(self.theta, [r]*len(self.theta), color=color, alpha=alpha, linestyle=linestyle, linewidth=linewidth)
 
     def spoke(self, ax, **kwargs):
         for t in self.theta:
@@ -155,11 +165,12 @@ class RadarPRO:
         vals = self._scale(values)
         angles = np.concatenate((self.theta, [self.theta[0]]))
         vals = np.concatenate((vals, [vals[0]]))
-        kwargs_radar = kwargs_radar or {"alpha": 0.35, "linewidth": 2}
-        ax.plot(angles, vals, **kwargs_radar)
-        fc = kwargs_radar.get("facecolor", None)
-        if fc is not None:
-            ax.fill(angles, vals, facecolor=fc, alpha=0.25)
+        kw = dict(kwargs_radar or {})
+        face = kw.pop('facecolor', None)
+        ax.plot(angles, vals, **kw)
+        if face is not None:
+            alpha = kw.get('alpha', 0.25)
+            ax.fill(angles, vals, facecolor=face, alpha=alpha)
 
     def draw_param_labels(self, ax=None, fontsize=10):
         import matplotlib.pyplot as plt
@@ -174,6 +185,7 @@ class RadarPRO:
         for angle, p, lo, up in zip(self.theta, self.params, self.lowers, self.uppers):
             ax.text(angle, 1.05, f"[{lo:.2f} – {up:.2f}]", fontsize=fontsize, ha='center', va='center')
 # --- End RadarPRO ---
+
 
 
 
