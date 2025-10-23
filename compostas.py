@@ -1422,20 +1422,26 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
     cols_per_row = 3
     total_rows = min((len(metrics) + cols_per_row - 1) // cols_per_row, 3)  # limite 3 linhas
     sub_gs = GridSpecFromSubplotSpec(nrows=total_rows, ncols=cols_per_row,
-                                     subplot_spec=gs_page[9:12, 0:12], wspace=0.28, hspace=0.22)
+                                     subplot_spec=gs_page[9:12, 0:12], wspace=0.16, hspace=0.12)
 
-    def _draw_bar_slim(ax, m, player_name):
+    def _draw_bar_slim(ax, m, player_name, row_idx, total_rows_in_grid):
         info = _metric_rank_info(df, m, player_name)
         rk, tot, norm = info.get("rank"), info.get("total"), info.get("norm")
         label = f"{m} — {rk}/{tot}" if rk is not None else f"{m}"
-        # barras finas ("filamentadas")
-        ax.barh([0], [norm if norm is not None else 0], height=0.14)  # mais fina
+        ax.barh([0], [norm if norm is not None else 0], height=0.12)
         ax.set_xlim(0, 1)
-        ax.set_ylim(-0.6, 0.6)  # espaço vertical enxuto
+        ax.set_ylim(-0.6, 0.6)
         ax.set_yticks([])
-        ax.set_xticks([0, 0.5, 1])
-        ax.set_xticklabels(["0%","50%","100%"], fontsize=7) ; ax.tick_params(axis="x", pad=0)
-        ax.set_title(label, fontsize=8, pad=0.5)
+        # ticks only on bottom row for cleanliness
+        if row_idx == (total_rows_in_grid - 1):
+            ax.set_xticks([0, 0.5, 1])
+            ax.set_xticklabels(["0%","50%","100%"], fontsize=7)
+            ax.tick_params(axis="x", pad=0)
+        else:
+            ax.set_xticks([0, 0.5, 1])
+            ax.set_xticklabels([])
+        # label as text (avoids awkward wrapping of titles)
+        ax.text(0.0, 1.02, label, transform=ax.transAxes, ha="left", va="bottom", fontsize=8)
         for spine in ["top","right","left"]:
             ax.spines[spine].set_visible(False)
 
@@ -1443,7 +1449,7 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
         r = i // cols_per_row
         c = i % cols_per_row
         ax = fig.add_subplot(sub_gs[r, c])
-        _draw_bar_slim(ax, m, player_a)
+        _draw_bar_slim(ax, m, player_a, r, total_rows)
 
     # ======= EXPORT (multi-page if needed) =======
     from matplotlib.backends.backend_pdf import PdfPages
@@ -1491,7 +1497,7 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
 
                 # Bars grid (compact)
                 sub = GridSpecFromSubplotSpec(nrows=per_page_rows, ncols=cols_per_row,
-                                              subplot_spec=gs2[2:12, 0:12], wspace=0.24, hspace=0.16)
+                                              subplot_spec=gs2[2:12, 0:12], wspace=0.14, hspace=0.10)
                 for i, m in enumerate(chunk):
                     r = i // cols_per_row
                     c = i % cols_per_row
@@ -1503,10 +1509,16 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
                     axb.set_xlim(0, 1)
                     axb.set_ylim(-0.6, 0.6)
                     axb.set_yticks([])
-                    axb.set_xticks([0, 0.5, 1])
-                    axb.set_xticklabels(["0%","50%","100%"], fontsize=7)
-                    axb.tick_params(axis="x", pad=0)
-                    axb.set_title(label, fontsize=8, pad=0.5)
+                    # ticks only for bottom row
+                    if r == (per_page_rows - 1):
+                        axb.set_xticks([0, 0.5, 1])
+                        axb.set_xticklabels(["0%","50%","100%"], fontsize=7)
+                        axb.tick_params(axis="x", pad=0)
+                    else:
+                        axb.set_xticks([0, 0.5, 1])
+                        axb.set_xticklabels([])
+                    # draw label as text to avoid wrapping
+                    axb.text(0.0, 1.02, label, transform=axb.transAxes, ha="left", va="bottom", fontsize=8)
                     for spine in ["top","right","left"]:
                         axb.spines[spine].set_visible(False)
                 return fig2
