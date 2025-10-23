@@ -1464,3 +1464,195 @@ PRESETS = {'aerial_duels': ['Aerial Threat',
             'Offensive Intensity',
             'Offensive Explosion',
             'Successful dribbles, %']}
+
+
+# --- Guarantee fusion of playmaking + build_up into playmaking_build_up (runs after any PRESETS re-definitions) ---
+def _radar_norm_key__pm_bu(s: str) -> str:
+    return (
+        str(s).strip().lower().replace("-", "_").replace(" ", "_")
+    )
+
+def _radar_dedup_keep_order__pm_bu(seq):
+    seen = set(); out = []
+    for x in seq:
+        if x not in seen:
+            out.append(x); seen.add(x)
+    return out
+
+try:
+    _keys_map = { _radar_norm_key__pm_bu(k): k for k in list(PRESETS.keys()) }
+    _k_play  = _keys_map.get("playmaking")
+    _k_build = _keys_map.get("build_up") or _keys_map.get("buildup")
+    if _k_play and _k_build:
+        _merged = _radar_dedup_keep_order__pm_bu(PRESETS[_k_play] + PRESETS[_k_build])
+        _CORE = {"Progression", "Creativity", "Passing Quality", "xG Buildup", "Defence", "Involvement"}
+        _core_cnt = 0; _merged_limited = []
+        for m in _merged:
+            if m in _CORE:
+                if _core_cnt >= 3:
+                    continue
+                _core_cnt += 1
+            _merged_limited.append(m)
+        PRESETS["playmaking_build_up"] = _merged_limited[:10]
+        del PRESETS[_k_play]
+        del PRESETS[_k_build]
+except Exception as _e:
+    # Do not break the app if fusion fails for any reason
+    pass
+
+
+# --- A4 PDF export: horizontal percentiles-by-cohort bars with P50/P80 guides ---
+import numpy as np, pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
+
+def _percentile_rank_by_cohort_safe(df: pd.DataFrame, metric: str,
+                                    league_col: str = "League", pos_col: str = "Position",
+                                    season_col: str | None = None) -> pd.Series:
+    s = pd.to_numeric(df.get(metric, pd.Series(index=df.index, dtype=float)), errors="coerce")
+    mask = s.notna()
+    out = pd.Series(np.nan, index=df.index)
+
+    group_cols = [c for c in [league_col, pos_col, season_col] if c and c in df.columns]
+    if not group_cols:
+        def _pct_rank(x):
+            n = x.shape[0]
+            if n <= 1: return pd.Series(np.nan, index=x.index)
+            r = x.rank(ascending=False, method="average")
+            return 100.0 * (n - r) / (n - 1)
+        out.loc[mask] = _pct_rank(s[mask])
+        return out
+
+    grp_keys = df.loc[mask, group_cols].apply(tuple, axis=1)
+    def _pct_rank(x):
+        n = x.shape[0]
+        if n <= 1: return pd.Series(np.nan, index=x.index)
+        r = x.rank(ascending=False, method="average")
+        return 100.0 * (n - r) / (n - 1)
+    out.loc[mask] = s[mask].groupby(grp_keys).transform(_pct_rank)
+    return out
+
+def _choose_default_blocks(df: pd.DataFrame) -> dict:
+    blocks = {}
+    cand_off = [c for c in [
+        "npxG per 90","Non-penalty goals per 90","Shots per 90","Shots on target, %",
+        "xA per 90","Key passes per 90","Smart passes per 90","Deep completions per 90",
+        "Touches in box per 90","Box Threat"
+    ] if c in df.columns]
+    if cand_off: blocks["Perfil ofensivo"] = cand_off[:8]
+
+    cand_prog = [c for c in [
+        "Passes to final third per 90","Passes to penalty area per 90","Progressive runs per 90",
+        "Progressive passes per 90","Accurate passes, %"
+    ] if c in df.columns]
+    if cand_prog: blocks["Progressão"] = cand_prog[:8]
+
+    cand_def = [c for c in [
+        "Successful defensive actions per 90","PAdj Interceptions","Defensive duels won, %",
+        "Aerial duels won, %","Recoveries per 90","Discipline"
+    ] if c in df.columns]
+    if cand_def: blocks["Defesa/Pressão"] = cand_def[:8]
+
+    return blocks
+
+def export_player_pdf_a4_bars(df: pd.DataFrame, player_name: str,
+                              cohort_filters: dict | None = None,
+                              blocks: dict | None = None,
+                              output_path: str = "player_report.pdf",
+                              league_col: str = "League", pos_col: str = "Position",
+                              season_col: str | None = None, minutes_col: str = "Minutes played"):
+    """
+    Creates a 1–2 page A4 landscape PDF with horizontal percentile bars by cohort and cut lines at P50/P80.
+    - df: your master dataframe
+    - player_name: exact name from df['Player']
+    - cohort_filters: e.g., {"League": "Championship", "Position": "CB"} to restrict coorte
+    - blocks: dict of {"Section title": [metric1, metric2, ...]}. If None, a sensible default is chosen.
+    """
+    if "Player" not in df.columns:
+        raise ValueError("DataFrame must have a 'Player' column.")
+
+    d = df.copy()
+    if cohort_filters:
+        for k, v in cohort_filters.items():
+            if k in d.columns:
+                d = d[d[k] == v]
+
+    cohort_df = d if len(d) >= 3 else df
+
+    if blocks is None:
+        blocks = _choose_default_blocks(cohort_df)
+
+    if player_name in d["Player"].values:
+        row = d[d["Player"] == player_name].iloc[0]
+    else:
+        row = df[df["Player"] == player_name].iloc[0]
+        d = df
+
+    try:
+        minutes = float(row.get(minutes_col, np.nan))
+    except Exception:
+        minutes = np.nan
+
+    pos = row.get(pos_col) if pos_col in row.index else None
+    league = row.get(league_col) if league_col in row.index else None
+
+    plot_blocks = []
+    for title, metrics in blocks.items():
+        avail = [m for m in metrics if m in cohort_df.columns]
+        if not avail: 
+            continue
+        pct_map = {}
+        raw_map = {}
+        for m in avail:
+            pct_series = _percentile_rank_by_cohort_safe(cohort_df, m, league_col, pos_col, season_col)
+            pct_series = pct_series.reindex(cohort_df.index)
+            val_pct = np.nan
+            if row.name in pct_series.index and pd.notna(pct_series.loc[row.name]):
+                val_pct = float(pct_series.loc[row.name])
+            pct_map[m] = val_pct
+            try:
+                raw_map[m] = float(pd.to_numeric(d.loc[row.name][m], errors="coerce")) if (row.name in d.index and m in d.columns) else np.nan
+            except Exception:
+                raw_map[m] = np.nan
+        kept = [m for m in avail if not np.isnan(pct_map[m])]
+        if kept:
+            plot_blocks.append((title, kept, pct_map, raw_map))
+
+    if not plot_blocks:
+        raise ValueError("No metrics available to plot for the selected player/cohort.")
+
+    a4_landscape = (11.69, 8.27)
+    with PdfPages(output_path) as pdf:
+        per_page = 3
+        for page_idx in range(0, len(plot_blocks), per_page):
+            page_blocks = plot_blocks[page_idx:page_idx+per_page]
+
+            fig = plt.figure(figsize=a4_landscape)
+            fig.suptitle(
+                f"{player_name} — {pos or ''} — {league or ''}  |  Percentis por coorte"
+                + (f"  |  Minutos: {int(minutes)}" if not np.isnan(minutes) else ""),
+                fontsize=14, y=0.98
+            )
+
+            top = 0.90; left = 0.08; right = 0.95; vspace = 0.26
+            for bi, (title, mets, pmap, rmap) in enumerate(page_blocks):
+                ax = fig.add_axes([left, top - (bi+1)*vspace + 0.03, right-left, vspace-0.06])
+                vals = [pmap[m] for m in mets]
+                y = np.arange(len(mets))
+                ax.barh(y, vals)
+                ax.set_yticks(y, labels=mets, fontsize=9)
+                ax.set_xlim(0, 100)
+                ax.set_xlabel("Percentil (0–100)")
+                ax.set_title(title, loc="left", fontsize=12)
+
+                ax.axvline(50, linestyle="--", linewidth=1)
+                ax.axvline(80, linestyle="--", linewidth=1)
+
+                for yi, m in enumerate(mets):
+                    rv = rmap[m]
+                    if not (rv is None or np.isnan(rv)):
+                        ax.text(vals[yi] + 1, yi, f"{rv:.2f}", va="center", fontsize=8)
+
+                ax.grid(True, axis="x", linewidth=0.3, alpha=0.4)
+            pdf.savefig(fig, bbox_inches="tight")
+            plt.close(fig)
