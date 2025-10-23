@@ -861,6 +861,138 @@ def make_radar_bars_pdf_a4(df: pd.DataFrame, player_a: str, player_b: str | None
     return buf
 
 
+# ======= PRO layout: Header (crest/title/photo) + Radar + Bars (A & optional B) on A4 =======
+def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
+                               color_a: str, color_b: str = "#E76F51",
+                               crest_bytes: bytes | None = None,
+                               player_photo_bytes: bytes | None = None,
+                               header_text: str | None = None) -> io.BytesIO:
+    import io as _io
+    metrics = (metrics or [])[:16]
+    lowers, uppers = _bounds_from_df(df, metrics)
+    radar = Radar(metrics, lowers, uppers, num_rings=4)
+
+    row_a = df[df["Player"] == player_a].iloc[0]
+    v_a = _values_for_player(row_a, metrics)
+
+    row_b = None
+    v_b = None
+    if player_b:
+        row_b = df[df["Player"] == player_b].iloc[0]
+        v_b = _values_for_player(row_b, metrics)
+
+    # Titles with ages if available
+    title_a = _player_label(row_a)
+    age_a = _player_age(row_a)
+    if age_a is not None:
+        title_a = f"{title_a} ({age_a})"
+    title = title_a
+    if row_b is not None:
+        title_b = _player_label(row_b)
+        age_b = _player_age(row_b)
+        if age_b is not None:
+            title_b = f"{title_b} ({age_b})"
+        title = f"{title_a} vs {title_b}"
+    if header_text:
+        title = header_text
+
+    # Figure: A4 Portrait — rows: header (small), radar (large), bars (medium)
+    fig = plt.figure(figsize=(8.27, 11.69))
+    gs = GridSpec(nrows=3, ncols=1, height_ratios=[0.55, 2.55, 1.0], figure=fig)
+
+    # --- Header area ---
+    try:
+        from PIL import Image
+    except Exception:
+        Image = None
+
+    ax_header = fig.add_subplot(gs[0, 0])
+    ax_header.axis('off')
+
+    # Crest (left)
+    if crest_bytes is not None and Image is not None:
+        try:
+            crest_img = Image.open(_io.BytesIO(crest_bytes)).convert("RGBA")
+            ax_crest = fig.add_axes([0.06, 0.915, 0.10, 0.07])
+            ax_crest.imshow(crest_img)
+            ax_crest.axis('off')
+        except Exception:
+            pass
+
+    # Player photo (right)
+    if player_photo_bytes is not None and Image is not None:
+        try:
+            photo_img = Image.open(_io.BytesIO(player_photo_bytes)).convert("RGBA")
+            ax_photo = fig.add_axes([0.84, 0.905, 0.10, 0.085])
+            ax_photo.imshow(photo_img)
+            ax_photo.axis('off')
+        except Exception:
+            pass
+
+    # Title (center)
+    try:
+        ax_header.text(0.5, 0.5, title, ha='center', va='center', fontsize=18, weight='bold')
+    except Exception:
+        pass
+
+    # --- Radar area ---
+    ax_radar = fig.add_subplot(gs[1, 0])
+    radar.setup_axis(ax=ax_radar)
+    radar.draw_circles(ax=ax_radar, facecolor="#f3f3f3", edgecolor="#c9c9c9", alpha=0.18)
+    try:
+        radar.spoke(ax=ax_radar, color="#c9c9c9", linestyle="--", alpha=0.18)
+    except Exception:
+        pass
+    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": color_a+"33", "edgecolor": color_a, "linewidth": 2})
+    if v_b is not None:
+        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": color_b+"33", "edgecolor": color_b, "linewidth": 2})
+    radar.draw_range_labels(ax=ax_radar, fontsize=9)
+    radar.draw_param_labels(ax=ax_radar, fontsize=10)
+
+    # --- Bars area ---
+    cols_per_row = 3
+    rows_per_player = max(1, (len(metrics) + cols_per_row - 1) // cols_per_row)
+    bar_rows_total = rows_per_player * (2 if v_b is not None else 1)
+
+    sub = GridSpecFromSubplotSpec(nrows=bar_rows_total, ncols=cols_per_row, subplot_spec=gs[2, 0])
+
+    def _draw_bar(ax, m, player_name):
+        info = _metric_rank_info(df, m, player_name)
+        rk, tot, norm = info["rank"], info["total"], info["norm"]
+        label = f"{m} — {rk}/{tot}" if rk is not None else f"{m} — n/a"
+        ax.barh([0], [norm])
+        ax.set_xlim(0, 1)
+        ax.set_yticks([])
+        ax.set_xticks([0, 0.5, 1])
+        ax.set_xticklabels(["0%","50%","100%"], fontsize=7)
+        ax.set_title(label, fontsize=8.5, pad=2)
+        for spine in ["top","right","left"]:
+            ax.spines[spine].set_visible(False)
+
+    # Player A bars
+    for i, m in enumerate(metrics):
+        r = i // cols_per_row
+        c = i % cols_per_row
+        ax = fig.add_subplot(sub[r, c])
+        _draw_bar(ax, m, player_a)
+
+    # Player B bars (if any), stacked after A
+    if v_b is not None:
+        for i, m in enumerate(metrics):
+            r = rows_per_player + (i // cols_per_row)
+            c = i % cols_per_row
+            ax = fig.add_subplot(sub[r, c])
+            _draw_bar(ax, m, player_b)
+
+    # Save to PDF in-memory
+    out = io.BytesIO()
+    fig.savefig(out, format="pdf", bbox_inches="tight", pad_inches=0.2)
+    plt.close(fig)
+    out.seek(0)
+    return out
+
+
+
 # ===================== SIDEBAR — Controls =====================
 st.sidebar.header("⚙️ Settings")
 up = st.sidebar.file_uploader("Upload merged Excel (WyScout + SkillCorner)", type=["xlsx"])
@@ -1362,7 +1494,8 @@ if p1 and metrics_sel:
         None if p2 == "—" else p2,
         metrics_sel,
         color_a,
-        color_b)
+        color_b,
+        crest_bytes=crest_bytes)
     st.download_button(
         "⬇️ Download Radar + Barras (PNG)",
         data=png_buf.getvalue(),
@@ -1371,15 +1504,14 @@ if p1 and metrics_sel:
 
 # Download button for A4 PDF (PRO)
 if p1 and metrics_sel:
-    pdf_buf = make_radar_bars_pdf_a4(
+    pdf_buf = make_radar_bars_pdf_a4_pro(
         df_all,
         p1,
         None if p2 == "—" else p2,
         metrics_sel,
         color_a,
         color_b,
-        crest_bytes=crest_bytes,
-        player_photo_bytes=player_photo_bytes)
+        crest_bytes=crest_bytes)
     st.download_button(
         "⬇️ Download Radar + Barras (PDF A4)",
         data=pdf_buf.getvalue(),
