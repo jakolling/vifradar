@@ -4,3 +4,4 @@ pandas
 matplotlib
 mplsoccer
 openpyxl
+python-docx
