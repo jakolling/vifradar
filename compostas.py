@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FixedLocator, FuncFormatter
 from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
 from mplsoccer import Radar
 
@@ -649,11 +650,12 @@ def render_metric_rank_bars(dfin: pd.DataFrame, player_a: str, metrics: list[str
                 rk, tot, val, norm = info["rank"], info["total"], info["value"], info["norm"]
                 label = f"{m} — {rk}/{tot}" if rk is not None else f"{m} — n/a"
                 fig, ax = plt.subplots(figsize=(4, 0.6))
-                ax.barh([0], [norm])
+                ax.barh([0], [float(np.clip(norm, 0.0, 1.0))], left=0, height=0.3)
                 ax.set_xlim(0, 1)
                 ax.set_yticks([])
-                ax.set_xticks([0, 0.5, 1])
-                ax.set_xticklabels(["0%","50%","100%"], fontsize=7)
+                ax.xaxis.set_major_locator(FixedLocator([0.0, 0.5, 1.0]))
+            ax.xaxis.set_major_formatter(FuncFormatter(lambda v, pos: f\"{int(round(v*100))}%\"))
+            for tick in ax.get_xticklabels(): tick.set_fontsize(7)
                 ax.set_title(label, fontsize=9, pad=2)
                 for spine in ["top","right","left"]:
                     ax.spines[spine].set_visible(False)
@@ -685,7 +687,7 @@ def make_radar_bars_png(df: pd.DataFrame, player_a: str, player_b: str | None, m
     bar_blocks = 1 + (1 if player_b else 0)
     total_bar_rows = rows_per_player * bar_blocks
 
-    fig = plt.figure(figsize=(11, 8 + total_bar_rows * 0.9))
+    fig = plt.figure(figsize=(11, 8 + total_bar_rows * 0.9), constrained_layout=True)
     gs = GridSpec(nrows=2 + total_bar_rows, ncols=3, figure=fig)
 
     # Radar spans first 2 rows
@@ -715,11 +717,12 @@ def make_radar_bars_png(df: pd.DataFrame, player_a: str, player_b: str | None, m
             info = _metric_rank_info(df, m, player_name)
             rk, tot, norm = info["rank"], info["total"], info["norm"]
             label = f"{m} — {rk}/{tot}" if rk is not None else f"{m} — n/a"
-            ax.barh([0], [norm])
+            ax.barh([0], [float(np.clip(norm, 0.0, 1.0))], left=0, height=0.3)
             ax.set_xlim(0, 1)
             ax.set_yticks([])
-            ax.set_xticks([0, 0.5, 1])
-            ax.set_xticklabels(["0%","50%","100%"], fontsize=7)
+            ax.xaxis.set_major_locator(FixedLocator([0.0, 0.5, 1.0]))
+            ax.xaxis.set_major_formatter(FuncFormatter(lambda v, pos: f\"{int(round(v*100))}%\"))
+            for tick in ax.get_xticklabels(): tick.set_fontsize(7)
             ax.set_title(label, fontsize=9, pad=2)
             for spine in ["top","right","left"]:
                 ax.spines[spine].set_visible(False)
@@ -730,7 +733,8 @@ def make_radar_bars_png(df: pd.DataFrame, player_a: str, player_b: str | None, m
 
     buf = io.BytesIO()
     fig.tight_layout()
-    fig.savefig(buf, format="png", dpi=220, bbox_inches="tight")
+    fig.canvas.draw()
+    fig.savefig(buf, format='png', dpi=220)
     plt.close(fig)
     buf.seek(0)
     return buf
@@ -791,11 +795,12 @@ def make_radar_bars_pdf_a4(df: pd.DataFrame, player_a: str, player_b: str | None
         info = _metric_rank_info(df, m, player_name)
         rk, tot, norm = info["rank"], info["total"], info["norm"]
         label = f"{m} — {rk}/{tot}" if rk is not None else f"{m} — n/a"
-        ax.barh([0], [norm])
+        ax.barh([0], [float(np.clip(norm, 0.0, 1.0))], left=0, height=0.3)
         ax.set_xlim(0, 1)
         ax.set_yticks([])
-        ax.set_xticks([0, 0.5, 1])
-        ax.set_xticklabels(["0%","50%","100%"], fontsize=7)
+        ax.xaxis.set_major_locator(FixedLocator([0.0, 0.5, 1.0]))
+            ax.xaxis.set_major_formatter(FuncFormatter(lambda v, pos: f\"{int(round(v*100))}%\"))
+            for tick in ax.get_xticklabels(): tick.set_fontsize(7)
         ax.set_title(label, fontsize=9, pad=2)
         for spine in ["top","right","left"]:
             ax.spines[spine].set_visible(False)
@@ -810,7 +815,8 @@ def make_radar_bars_pdf_a4(df: pd.DataFrame, player_a: str, player_b: str | None
 
     # Save into an in-memory PDF
     buf = io.BytesIO()
-    fig.savefig(buf, format="pdf", bbox_inches="tight", pad_inches=0.2)
+    fig.canvas.draw()
+    fig.savefig(buf, format='pdf')
     plt.close(fig)
     buf.seek(0)
     return buf
@@ -1354,7 +1360,7 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
     radar = Radar(metrics, lowers, uppers, num_rings=4)
 
     # --- Figura A4
-    fig = plt.figure(figsize=(8.27, 11.69))
+    fig = plt.figure(figsize=(8.27, 11.69), constrained_layout=True)
     gs_page = GridSpec(nrows=12, ncols=12, figure=fig)
 
     # ======= HEADER =======
@@ -1442,14 +1448,15 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
         info = _metric_rank_info(df, m, player_name)
         rk, tot, norm = info.get("rank"), info.get("total"), info.get("norm")
         label = f"{m} — {rk}/{tot}" if rk is not None else f"{m}"
-        ax.barh([0], [norm if norm is not None else 0], height=0.12)
+        ax.barh([0], [float(np.clip((norm if norm is not None else 0.0), 0.0, 1.0))], left=0, height=0.3)
         ax.set_xlim(0, 1)
         ax.set_ylim(-0.6, 0.6)
         ax.set_yticks([])
         # ticks only on bottom row for cleanliness
         if row_idx == (total_rows_in_grid - 1):
-            ax.set_xticks([0, 0.5, 1])
-            ax.set_xticklabels(["0%","50%","100%"], fontsize=7)
+            ax.xaxis.set_major_locator(FixedLocator([0.0, 0.5, 1.0]))
+            ax.xaxis.set_major_formatter(FuncFormatter(lambda v, pos: f\"{int(round(v*100))}%\"))
+            for tick in ax.get_xticklabels(): tick.set_fontsize(7)
             ax.tick_params(axis="x", pad=0)
         else:
             ax.set_xticks([0, 0.5, 1])
@@ -1971,7 +1978,7 @@ def make_radar_bars_pdf_a4(df: pd.DataFrame, player_a: str, player_b: str | None
     radar = Radar(metrics, lowers, uppers, num_rings=4)
 
     # --- Figura A4
-    fig = plt.figure(figsize=(8.27, 11.69))
+    fig = plt.figure(figsize=(8.27, 11.69), constrained_layout=True)
     gs_page = GridSpec(nrows=12, ncols=12, figure=fig)
 
     # ===================== HEADER =====================
@@ -2043,11 +2050,12 @@ def make_radar_bars_pdf_a4(df: pd.DataFrame, player_a: str, player_b: str | None
         info = _metric_rank_info(df, m, player_name)
         rk, tot, norm = info.get("rank"), info.get("total"), info.get("norm")
         label = f"{m} — {rk}/{tot}" if rk is not None else f"{m}"
-        ax.barh([0], [norm if norm is not None else 0])
+        ax.barh([0], [float(np.clip((norm if norm is not None else 0.0), 0.0, 1.0))], left=0, height=0.3)
         ax.set_xlim(0, 1)
         ax.set_yticks([])
-        ax.set_xticks([0, 0.5, 1])
-        ax.set_xticklabels(["0%","50%","100%"], fontsize=7)
+        ax.xaxis.set_major_locator(FixedLocator([0.0, 0.5, 1.0]))
+            ax.xaxis.set_major_formatter(FuncFormatter(lambda v, pos: f\"{int(round(v*100))}%\"))
+            for tick in ax.get_xticklabels(): tick.set_fontsize(7)
         ax.set_title(label, fontsize=9, pad=2)
         for spine in ["top","right","left"]:
             ax.spines[spine].set_visible(False)
@@ -2060,7 +2068,8 @@ def make_radar_bars_pdf_a4(df: pd.DataFrame, player_a: str, player_b: str | None
 
     # ===================== EXPORT =====================
     buf = io.BytesIO()
-    fig.savefig(buf, format="pdf", dpi=300, bbox_inches="tight", pad_inches=0.25)
+    fig.canvas.draw()
+    fig.savefig(buf, format='pdf')
     plt.close(fig)
     buf.seek(0)
     return buf
