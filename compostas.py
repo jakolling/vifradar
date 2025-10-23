@@ -663,7 +663,10 @@ def render_metric_rank_bars(dfin: pd.DataFrame, player_a: str, metrics: list[str
 
 # ======= Build a single PNG that includes Radar + Ranking Bars =======
 def make_radar_bars_png(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
-                        color_a: str, color_b: str = "#E76F51") -> io.BytesIO:
+                        color_a: str, color_b: str = "#E76F51",
+                        crest_bytes: bytes | None = None,
+                        player_photo_bytes: bytes | None = None,
+                        header_text: str | None = None) -> io.BytesIO:
     metrics = (metrics or [])[:16]
 
     lowers, uppers = _bounds_from_df(df, metrics)
