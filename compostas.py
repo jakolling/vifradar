@@ -722,14 +722,26 @@ def _draw_metric_bar_axis(ax, metric: str, stats: dict, player_infos: list[dict]
     transform = stats.get("transform", 1.0)
     axis_lo = stats.get("axis_lo", -0.5)
     axis_hi = stats.get("axis_hi", 0.5)
+
     if not np.isfinite(axis_lo):
         axis_lo = -0.5
     if not np.isfinite(axis_hi):
         axis_hi = 0.5
     if axis_lo == axis_hi:
-        axis_hi = axis_lo + 1.0 if axis_lo == 0 else axis_lo + abs(axis_lo) * 0.1
+        pad = abs(axis_lo) * 0.1 if axis_lo != 0 else 1.0
+        axis_lo -= pad * 0.5
+        axis_hi += pad * 0.5
+
+    reference_scale = max(abs(axis_lo), abs(axis_hi), 1.0)
     span = axis_hi - axis_lo
-    margin = span * 0.08 if span != 0 else 1.0
+    if not np.isfinite(span) or span <= reference_scale * 1e-3:
+        pad = max(reference_scale * 0.05, 0.1)
+        axis_lo -= pad
+        axis_hi += pad
+        reference_scale = max(abs(axis_lo), abs(axis_hi), 1.0)
+        span = axis_hi - axis_lo
+
+    margin = max(span * 0.12, reference_scale * 0.05, 0.1)
 
     valid_infos = [(idx, info) for idx, info in enumerate(player_infos) if np.isfinite(info.get("plot_value", np.nan))]
     missing_infos = [info for info in player_infos if not np.isfinite(info.get("plot_value", np.nan))]
@@ -740,6 +752,7 @@ def _draw_metric_bar_axis(ax, metric: str, stats: dict, player_infos: list[dict]
     else:
         y_positions = []
         y_high = 0.7
+
     ax.set_ylim(-0.7, y_high)
     ax.set_xlim(axis_lo - margin, axis_hi + margin)
     ax.set_yticks([])
@@ -751,17 +764,22 @@ def _draw_metric_bar_axis(ax, metric: str, stats: dict, player_infos: list[dict]
         lo_bg, hi_bg = sorted([range_lo, range_hi])
         ax.axvspan(lo_bg, hi_bg, color="#e2e8f0", alpha=0.55, zorder=0)
 
+    zero_in_range = axis_lo < 0 < axis_hi
+    if zero_in_range:
+        ax.axvline(0, color="#94a3b8", linewidth=0.6, alpha=0.7, zorder=1)
+
     for val, style in [(stats.get("q1"), ":"), (stats.get("median"), "--"), (stats.get("q3"), ":")]:
         if np.isfinite(val):
             ax.axvline(val, color="#94a3b8", linestyle=style, linewidth=0.7, zorder=1)
 
     ax.grid(axis="x", linestyle=":", linewidth=0.5, alpha=0.45, color="#cbd5e1")
 
-    baseline = axis_lo
-    if not np.isfinite(baseline):
+    if zero_in_range:
+        baseline = 0.0
+    else:
         baseline = axis_lo
 
-    text_offset = max(span * 0.02, 0.05) if span != 0 else 0.05
+    text_offset = max(span * 0.04, margin * 0.35, 0.08)
     bar_height = 0.38 if len(valid_infos) > 1 else 0.44
 
     for pos, (idx, info) in zip(y_positions, valid_infos):
@@ -783,7 +801,7 @@ def _draw_metric_bar_axis(ax, metric: str, stats: dict, player_infos: list[dict]
         else:
             text_x = plot_val - text_offset
             ha = "right"
-        text_x = float(np.clip(text_x, axis_lo - margin, axis_hi + margin))
+        text_x = float(np.clip(text_x, axis_lo - margin * 0.6, axis_hi + margin * 0.6))
         ax.text(
             text_x,
             pos,
@@ -793,27 +811,28 @@ def _draw_metric_bar_axis(ax, metric: str, stats: dict, player_infos: list[dict]
             fontsize=8,
             color="#0f172a",
             zorder=4,
+            bbox={"facecolor": "white", "alpha": 0.85, "edgecolor": "none", "pad": 0.3},
         )
 
     if missing_infos:
         for miss_idx, info in enumerate(missing_infos):
             ax.text(
                 0.02,
-                0.05 + miss_idx * 0.12,
+                0.95 - miss_idx * 0.14,
                 f"{info['player']}: sem dados",
                 transform=ax.transAxes,
                 ha="left",
-                va="bottom",
+                va="top",
                 fontsize=7,
                 color="#94a3b8",
             )
 
     arrow_note = " (menor é melhor)" if transform == -1 else ""
-    ax.set_title(f"{metric}{arrow_note}", fontsize=9, pad=4, loc="left", color="#0f172a")
+    ax.set_title(f"{metric}{arrow_note}", fontsize=9, pad=5, loc="left", color="#0f172a")
 
     ax.xaxis.set_major_locator(MaxNLocator(nbins=4, prune="both"))
     ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _: _format_metric_value(metric, x * transform)))
-    ax.tick_params(axis="x", labelsize=7, colors="#475569", pad=1)
+    ax.tick_params(axis="x", labelsize=7, colors="#475569", pad=2)
 
     for spine in ax.spines.values():
         spine.set_visible(False)
