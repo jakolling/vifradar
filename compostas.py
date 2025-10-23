@@ -1316,18 +1316,24 @@ if p1 and metrics_sel:
 
 # Download button for A4 PDF (PRO layout)
 if p1 and metrics_sel:
-    from inspect import signature as _sig_pdf_call_sig
+    # Choose the best available generator: PRO > new A4 > legacy
+    _pdf_fn = globals().get("make_radar_bars_pdf_a4_pro") or globals().get("make_radar_bars_pdf_a4")
+    if _pdf_fn is None:
+        raise RuntimeError("Nenhuma função de PDF encontrada (make_radar_bars_pdf_a4[_pro]).")
+
+    from inspect import signature as _inspect_sig
     __pdf_call_kwargs = {}
     try:
-        __sig = _sig_pdf_call_sig(make_radar_bars_pdf_a4)
+        __sig = _inspect_sig(_pdf_fn)
         if "player_photo_bytes" in __sig.parameters:
             __pdf_call_kwargs["player_photo_bytes"] = player_photo_bytes
         if "crest_bytes" in __sig.parameters:
             __pdf_call_kwargs["crest_bytes"] = crest_bytes
     except Exception:
         __pdf_call_kwargs = {}
+
     try:
-        pdf_buf = make_radar_bars_pdf_a4_pro(
+        pdf_buf = _pdf_fn(
             df_all,
             p1,
             None if p2 == "—" else p2,
@@ -1337,7 +1343,7 @@ if p1 and metrics_sel:
             **__pdf_call_kwargs
         )
     except TypeError:
-        pdf_buf = make_radar_bars_pdf_a4_pro(
+        pdf_buf = _pdf_fn(
             df_all,
             p1,
             None if p2 == "—" else p2,
