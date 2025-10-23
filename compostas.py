@@ -1316,8 +1316,36 @@ if p1 and metrics_sel:
 
 # Download button for A4 PDF
 if p1 and metrics_sel:
-    pdf_buf = make_radar_bars_pdf_a4(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b, player_photo_bytes=player_photo_bytes, crest_bytes=crest_bytes)
-    st.download_button("⬇️ Download Radar + Barras (PDF A4)", data=pdf_buf.getvalue(),
+    from inspect import signature as _sig_pdf_call_sig
+    __pdf_call_kwargs = {}
+    try:
+        __sig = _sig_pdf_call_sig(make_radar_bars_pdf_a4)
+        if "player_photo_bytes" in __sig.parameters:
+            __pdf_call_kwargs["player_photo_bytes"] = player_photo_bytes
+        if "crest_bytes" in __sig.parameters:
+            __pdf_call_kwargs["crest_bytes"] = crest_bytes
+    except Exception:
+        __pdf_call_kwargs = {}
+    try:
+        pdf_buf = make_radar_bars_pdf_a4(
+            df_all,
+            p1,
+            None if p2 == "—" else p2,
+            metrics_sel,
+            color_a,
+            color_b,
+            **__pdf_call_kwargs
+        )
+    except TypeError:
+        pdf_buf = make_radar_bars_pdf_a4(
+            df_all,
+            p1,
+            None if p2 == "—" else p2,
+            metrics_sel,
+            color_a,
+            color_b
+        )
+st.download_button("⬇️ Download Radar + Barras (PDF A4)", data=pdf_buf.getvalue(),
                        file_name="radar_barras_A4.pdf", mime="application/pdf")
 
 
