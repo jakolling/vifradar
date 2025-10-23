@@ -1,4 +1,3 @@
-# === VIFRADAR BUILD: 2025-10-23T18:06:28.321982Z ===
 from __future__ import annotations
 
 import io
@@ -114,7 +113,8 @@ class Radar:
 
 # === PRO PDF function (placed near top) ===
 def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: Optional[str], metrics: List[str],
-                           color_a: str, color_b: str = "#E76F51") -> io.BytesIO:
+                           color_a: str, color_b: str = "#E76F51",
+                           player_photo_bytes: Optional[bytes] = None, crest_bytes: Optional[bytes] = None) -> io.BytesIO:
     metrics = (metrics or [])[:16]
     lowers, uppers = _bounds_from_df(df, metrics)
     radar = Radar(metrics, lowers, uppers, num_rings=4)
