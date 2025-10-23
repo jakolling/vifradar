@@ -1431,22 +1431,30 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
     radar.draw_range_labels(ax=ax_radar, fontsize=9)
     radar.draw_param_labels(ax=ax_radar, fontsize=10)
 
-    # ======= BARRAS (menores/achatadas) =======
-    # Área de barras reduzida: [9:12] (antes era [8:12])
+    # ======= BARRAS (refeito do zero) =======
+    # Grade compacta: 3 colunas, até 3 linhas na primeira página
     cols_per_row = 3
-    total_rows = min((len(metrics) + cols_per_row - 1) // cols_per_row, 3)  # limite 3 linhas
-    sub_gs = GridSpecFromSubplotSpec(nrows=total_rows, ncols=cols_per_row,
-                                     subplot_spec=gs_page[9:12, 0:12], wspace=0.16, hspace=0.12)
+    total_rows = min((len(metrics) + cols_per_row - 1) // cols_per_row, 3)
+    from matplotlib.gridspec import GridSpecFromSubplotSpec
+    sub_gs = GridSpecFromSubplotSpec(
+        nrows=total_rows,
+        ncols=cols_per_row,
+        subplot_spec=gs_page[9:12, 0:12],
+        wspace=0.16,
+        hspace=0.12
+    )
 
-    def _draw_bar_slim(ax, m, player_name, row_idx, total_rows_in_grid):
+    def _draw_bar_clean(ax, m, player_name, row_idx, total_rows_in_grid):
         info = _metric_rank_info(df, m, player_name)
         rk, tot, norm = info.get("rank"), info.get("total"), info.get("norm")
         label = f"{m} — {rk}/{tot}" if rk is not None else f"{m}"
-        ax.barh([0], [norm if norm is not None else 0], height=0.12)
+
+        ax.barh([0], [norm if norm is not None else 0], height=0.12, zorder=1)
         ax.set_xlim(0, 1)
         ax.set_ylim(-0.6, 0.6)
         ax.set_yticks([])
-        # ticks only on bottom row for cleanliness
+
+        # ticks só na última linha
         if row_idx == (total_rows_in_grid - 1):
             ax.set_xticks([0, 0.5, 1])
             ax.set_xticklabels(["0%","50%","100%"], fontsize=7)
@@ -1454,76 +1462,82 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
         else:
             ax.set_xticks([0, 0.5, 1])
             ax.set_xticklabels([])
-        # label as text (avoids awkward wrapping of titles)
-        ax.text(0.0, 0.5, label, transform=ax.transAxes, ha="left", va="center", fontsize=8,
-       bbox={"facecolor": "white", "edgecolor": "none", "pad": 0.2}, zorder=5)
+
+        # rótulo alinhado ao centro vertical da barra, com bbox branco (evita sobreposição visual)
+        ax.text(0.0, 0.5, label, transform=ax.transAxes,
+                ha="left", va="center", fontsize=8,
+                bbox={"facecolor": "white", "edgecolor": "none", "pad": 0.2}, zorder=5)
+
         for spine in ["top","right","left"]:
             ax.spines[spine].set_visible(False)
 
-    for i, m in enumerate(metrics[:cols_per_row * total_rows]):
+    visible_capacity = cols_per_row * total_rows
+    for i, m in enumerate(metrics[:visible_capacity]):
         r = i // cols_per_row
         c = i % cols_per_row
         ax = fig.add_subplot(sub_gs[r, c])
-        _draw_bar_slim(ax, m, player_a, r, total_rows)
+        _draw_bar_clean(ax, m, player_a, r, total_rows)
 
-    # ======= EXPORT (multi-page if needed) =======
+    # ======= EXPORT / MULTI-PAGE =======
     from matplotlib.backends.backend_pdf import PdfPages
-
-    # Compute capacity for first page
-    first_capacity = cols_per_row * total_rows
-    remaining_metrics = metrics[first_capacity:]
+    remaining_metrics = metrics[visible_capacity:]
 
     buf = io.BytesIO()
     with PdfPages(buf) as pdf:
         pdf.savefig(fig, bbox_inches="tight", dpi=300)
         plt.close(fig)
 
-        # Add compact bar-only pages for remaining metrics (if any)
+        # Páginas extras: A4 sem cabeçalho, grade cheia
         if remaining_metrics:
-            per_page_rows = 12  # 10 rows x 3 cols = 30 metrics per extra page
-            per_page_capacity = cols_per_row * per_page_rows
+            cols_per_row_extra = 3
+            per_page_rows = 12  # 12 linhas x 3 colunas = 36 métricas por página
+            per_page_capacity = cols_per_row_extra * per_page_rows
 
-            def _make_bars_page(chunk, title_suffix="(cont.)"):
-                # A4, no header; full-page compact grid for bars
-                from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
+            for page_idx in range(0, len(remaining_metrics), per_page_capacity):
+                chunk = remaining_metrics[page_idx: page_idx + per_page_capacity]
+
                 fig2 = plt.figure(figsize=(8.27, 11.69))
                 gs2  = GridSpec(nrows=12, ncols=12, figure=fig2)
-                # Bars grid fills the page (margins handled by bbox_inches)
-                per_rows = per_page_rows  # defined outside (e.g., 12)
-                sub = GridSpecFromSubplotSpec(nrows=per_rows, ncols=cols_per_row,
-                                              subplot_spec=gs2[0:12, 0:12], wspace=0.14, hspace=0.10)
-                for i, m in enumerate(chunk):
-                    r = i // cols_per_row
-                    c = i % cols_per_row
-                    axb = fig2.add_subplot(sub[r, c])
-                    info = _metric_rank_info(df, m, player_a)
+
+                sub = GridSpecFromSubplotSpec(
+                    nrows=per_page_rows,
+                    ncols=cols_per_row_extra,
+                    subplot_spec=gs2[0:12, 0:12],
+                    wspace=0.16,
+                    hspace=0.12
+                )
+
+                for i2, m2 in enumerate(chunk):
+                    rr = i2 // cols_per_row_extra
+                    cc = i2 % cols_per_row_extra
+                    axb = fig2.add_subplot(sub[rr, cc])
+
+                    info = _metric_rank_info(df, m2, player_a)
                     rk, tot, norm = info.get("rank"), info.get("total"), info.get("norm")
-                    label = f"{m} — {rk}/{tot}" if rk is not None else f"{m}"
+                    label = f"{m2} — {rk}/{tot}" if rk is not None else f"{m2}"
+
                     axb.barh([0], [norm if norm is not None else 0], height=0.12, zorder=1)
                     axb.set_xlim(0, 1)
                     axb.set_ylim(-0.6, 0.6)
                     axb.set_yticks([])
-                    # ticks only for bottom row
-                    if r == (per_rows - 1):
+
+                    if rr == (per_page_rows - 1):
                         axb.set_xticks([0, 0.5, 1])
                         axb.set_xticklabels(["0%","50%","100%"], fontsize=7)
                         axb.tick_params(axis="x", pad=0)
                     else:
                         axb.set_xticks([0, 0.5, 1])
                         axb.set_xticklabels([])
-                    # label centered on bar, drawn after bar with white bbox to avoid overlap
-                    axb.text(0.0, 0.5, label, transform=axb.transAxes, ha="left", va="center", fontsize=8,
+
+                    axb.text(0.0, 0.5, label, transform=axb.transAxes,
+                             ha="left", va="center", fontsize=8,
                              bbox={"facecolor": "white", "edgecolor": "none", "pad": 0.2}, zorder=5)
+
                     for spine in ["top","right","left"]:
                         axb.spines[spine].set_visible(False)
-                return fig2
 
-            # Paginate remaining metrics
-            for page_idx in range(0, len(remaining_metrics), per_page_capacity):
-                chunk = remaining_metrics[page_idx: page_idx + per_page_capacity]
-                fig_extra = _make_bars_page(chunk, title_suffix=f"(barras – pág. {1 + page_idx // per_page_capacity + 1})")
-                pdf.savefig(fig_extra, bbox_inches="tight", dpi=300)
-                plt.close(fig_extra)
+                pdf.savefig(fig2, bbox_inches="tight", dpi=300)
+                plt.close(fig2)
 
     buf.seek(0)
     return buf
