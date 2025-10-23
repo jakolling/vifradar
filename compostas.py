@@ -1222,6 +1222,95 @@ with col4: st.markdown(f"<div class='metric-card'><div class='subtle small'>Colu
 # ===================== Rankings =====================
 st.markdown("<div class='section'>Rankings</div>", unsafe_allow_html=True)
 
+def _leaderboard(metric):
+    d = df_view.copy()
+    if d.empty:
+        st.info("Nenhum jogador atende ao filtro de minutos para exibição no ranking.")
+        return
+    if team_filter:
+        d = d[d["Team"].astype(str) == team_filter]
+    if pos_filter:
+        d = d[d["Position"].astype(str).str.contains(pos_filter)]
+    if metric not in d.columns:
+        st.warning(f"Métrica {metric} não encontrada no dataset.")
+        return
+    id_cols = [c for c in ID_COLS_CANDIDATES if c in d.columns]
+    cols = id_cols + [
+        "Work Rate Offensive","Offensive Intensity","Offensive Explosion",
+        "Work Rate Defensive","Defensive Intensity","Defensive Explosion",
+        "Creativity","Progression","Defence","Passing Quality","Aerial Defence",
+        "Involvement","Discipline","xG Buildup","Box Threat","Finishing",
+        "Poaching","Aerial Threat","npxG per 90","npxG per Shot","G-xG",
+    ]
+    present = [c for c in cols if c in d.columns]
+    out = d.dropna(subset=[metric]).sort_values(metric, ascending=False).head(TOPN)
+    st.dataframe(out[present], use_container_width=True)
+
+t1, t2, t3, t4, t5, t6 = st.tabs([
+    "Work Rate Offensive","Offensive Intensity","Offensive Explosion",
+    "Work Rate Defensive","Defensive Intensity","Defensive Explosion",
+])
+with t1: _leaderboard("Work Rate Offensive")
+with t2: _leaderboard("Offensive Intensity")
+with t3: _leaderboard("Offensive Explosion")
+with t4: _leaderboard("Work Rate Defensive")
+with t5: _leaderboard("Defensive Intensity")
+with t6: _leaderboard("Defensive Explosion")
+
+# ===================== Radar Generator + Ranking Bars =====================
+st.markdown("<div class='section'>Radar Generator</div>", unsafe_allow_html=True)
+
+def _merge_presets(preset_names: list[str], df: pd.DataFrame) -> list[str]:
+    merged = []
+    for p in preset_names:
+        for m in PRESETS.get(p, []):
+            if m in df.columns and df[m].notna().any() and m not in merged:
+                merged.append(m)
+    return merged
+
+colA, colB = st.columns([1, 2])
+with colA:
+    all_presets = list(PRESETS.keys())
+    selected_presets = st.multiselect(
+        "Position presets (choose up to 3)",
+        options=all_presets,
+        default=[all_presets[0]]
+    )
+    if len(selected_presets) > 3:
+        st.warning("You selected more than 3 presets; only the first 3 will be used.")
+        selected_presets = selected_presets[:3]
+
+    metrics_from_presets = _merge_presets(selected_presets, df_all)
+
+    metrics_all = sorted([
+        c for c in df_all.columns
+        if c not in ID_COLS_CANDIDATES and pd.api.types.is_numeric_dtype(df_all[c])
+    ])
+
+    default_metrics = metrics_from_presets[:16] if metrics_from_presets else []
+    metrics_sel = st.multiselect(
+        "Metrics in radar (max 16)",
+        options=metrics_all,
+        default=default_metrics,
+        help="You can add/remove metrics. If multiple presets are selected, duplicates are removed automatically."
+    )
+    if len(metrics_sel) > 16:
+        st.info(f"You selected {len(metrics_sel)} metrics; only the first 16 will be plotted.")
+
+    players = sorted(df_all["Player"].dropna().unique().tolist()) if "Player" in df_all.columns else []
+    p1 = st.selectbox("Player A", players)
+    p2 = st.selectbox("Player B (optional)", ["—"] + players)
+    color_a = st.color_picker("Color A", "#2A9D8F")
+    color_b = st.color_picker("Color B", "#E76F51")
+    # Optional images for header
+    player_photo_up = st.file_uploader("Player photo (PNG/JPG) — optional", type=["png","jpg","jpeg"], key="photo")
+    crest_up = st.file_uploader("Club crest (PNG/JPG) — optional", type=["png","jpg","jpeg"], key="crest")
+    player_photo_bytes = player_photo_up.read() if player_photo_up else None
+    crest_bytes = crest_up.read() if crest_up else None
+
+
+
+# === PRO PDF (definition placed before usage) ===
 def _radar_norm_key__pm_bu(s: str) -> str:
     return (
         str(s).strip().lower().replace("-", "_").replace(" ", "_")
@@ -1415,10 +1504,3 @@ def export_player_pdf_a4_bars(df: pd.DataFrame, player_name: str,
 
 
 # ===== Enhanced A4 PDF with professional header and optional images =====
-# ===== fim do hotfix =====
-
-
-
-# ====== PRO PDF LAYOUT (forced new header + grid) ======
-
-# ====== END PRO PDF LAYOUT ======
