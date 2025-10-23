@@ -1308,31 +1308,58 @@ with colA:
     player_photo_bytes = player_photo_up.read() if player_photo_up else None
     crest_bytes = crest_up.read() if crest_up else None
 
+# Download button for combined PNG
+if p1 and metrics_sel:
+    png_buf = make_radar_bars_png(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b)
+    st.download_button("⬇️ Download Radar + Barras (PNG)", data=png_buf.getvalue(),
+                       file_name="radar_barras.png", mime="image/png")
 
+# Download button for A4 PDF (PRO layout)
+if p1 and metrics_sel:
+    # Choose the best available generator: PRO > new A4 > legacy
+    _pdf_fn = globals().get("make_radar_bars_pdf_a4_pro") or globals().get("make_radar_bars_pdf_a4")
+    if _pdf_fn is None:
+        raise RuntimeError("Nenhuma função de PDF encontrada (make_radar_bars_pdf_a4[_pro]).")
 
-# === PRO PDF (definition placed before usage) ===
+    from inspect import signature as _inspect_sig
+    __pdf_call_kwargs = {}
+    try:
+        __sig = _inspect_sig(_pdf_fn)
+        if "player_photo_bytes" in __sig.parameters:
+            __pdf_call_kwargs["player_photo_bytes"] = player_photo_bytes
+        if "crest_bytes" in __sig.parameters:
+            __pdf_call_kwargs["crest_bytes"] = crest_bytes
+    except Exception:
+        __pdf_call_kwargs = {}
+
+    try:
+        pdf_buf = make_radar_bars_pdf_a4_pro(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b, player_photo_bytes=player_photo_bytes, crest_bytes=crest_bytes)
+    except TypeError:
+        pdf_buf = make_radar_bars_pdf_a4_pro(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b, player_photo_bytes=player_photo_bytes, crest_bytes=crest_bytes)
+st.download_button("⬇️ 
+
+# === PRO PDF (moved before call) ===
 def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
                                color_a: str, color_b: str = "#E76F51",
                                player_photo_bytes: bytes | None = None,
                                crest_bytes: bytes | None = None) -> io.BytesIO:
     """
-    PRO layout (v2):
-      - Cabeçalho com *espaços reservados* (quadrados brancos) para FOTO (esq.) e ESCUDO (dir.).
-      - Radar MAIOR (mais espaço vertical).
-      - Barras MENORES e mais "filamentadas" (altura reduzida).
+    PRO layout: header band (always visible), optional photo/crest, large radar, grid bars.
+    This function is independent to avoid ambiguity with older versions.
     """
     import matplotlib.pyplot as plt
     from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
-    from matplotlib.patches import FancyBboxPatch
+    from matplotlib.patches import FancyBboxPatch, Circle
     from PIL import Image
+    import numpy as np
     import io
     from datetime import datetime
 
+    # --- Prepare data
     metrics = (metrics or [])[:16]
-
-    # --- Dados dos jogadores
     row_a = df[df["Player"] == player_a].iloc[0]
     v_a = _values_for_player(row_a, metrics)
+
     title_a = _player_label(row_a)
     a_age = _player_age(row_a)
     if a_age is not None:
@@ -1353,74 +1380,54 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
     lowers, uppers = _bounds_from_df(df, metrics)
     radar = Radar(metrics, lowers, uppers, num_rings=4)
 
-    # --- Figura A4
+    # --- Figure (A4 portrait)
     fig = plt.figure(figsize=(8.27, 11.69))
     gs_page = GridSpec(nrows=12, ncols=12, figure=fig)
 
-    # ======= HEADER =======
+    # Header band (always visible even with no images)
     ax_header = fig.add_subplot(gs_page[0:2, :]); ax_header.axis("off")
     band = FancyBboxPatch((0.01, 0.01), 0.98, 0.98, boxstyle="round,pad=0.02,rounding_size=0.02",
                           transform=ax_header.transAxes, linewidth=0, facecolor="#0f172a", alpha=0.98)
     ax_header.add_patch(band)
 
-    # Slots do cabeçalho
+    # Header slots
     ax_photo = fig.add_subplot(gs_page[0:2, 0:2]); ax_photo.axis("off")
-    ax_title = fig.add_subplot(gs_page[0:2, 3:9]); ax_title.axis("off")
+    ax_title = fig.add_subplot(gs_page[0:2, 2:10]); ax_title.axis("off")
     ax_crest = fig.add_subplot(gs_page[0:2, 10:12]); ax_crest.axis("off")
 
-    # Espaços reservados (quadrados brancos) - sempre renderizados, com leve borda cinza
-
-    # Se imagens forem fornecidas, desenhamos POR CIMA do quadrado branco, centralizadas
-    def _draw_image_center(ax, img_bytes):
-        if not img_bytes:
-            return
+    # Photo (optional)
+    if player_photo_bytes:
+        circ = Circle((0.5, 0.5), radius=0.42, transform=ax_photo.transAxes,
+                      facecolor="#0f172a", edgecolor="#e5e7eb", linewidth=1.0)
+        ax_photo.add_patch(circ)
         try:
-            im = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
-            ax.imshow(im, extent=(0.18, 0.82, 0.18, 0.82), zorder=3)
+            im = Image.open(io.BytesIO(player_photo_bytes)).convert("RGBA")
+            ax_photo.imshow(im, extent=(0.08, 0.92, 0.08, 0.92), zorder=3)
         except Exception:
-            pass  # não quebra
+            pass
 
-    _draw_image_center(ax_photo, player_photo_bytes)
-    _draw_image_center(ax_crest, crest_bytes)
+    # Crest (optional)
+    if crest_bytes:
+        rect = FancyBboxPatch((0.08, 0.08), 0.84, 0.84, boxstyle="round,pad=0.02,rounding_size=0.03",
+                              transform=ax_crest.transAxes, linewidth=1.0,
+                              facecolor="#0b1220", edgecolor="#1f2937")
+        ax_crest.add_patch(rect)
+        try:
+            im = Image.open(io.BytesIO(crest_bytes)).convert("RGBA")
+            ax_crest.imshow(im, extent=(0.12, 0.88, 0.12, 0.88), zorder=3)
+        except Exception:
+            pass
 
-    # Título (apenas no centro; nada nos slots de foto/escudo)
-    def _wrap_title(txt: str, max_chars_line: int = 36):
-        # simple wrap to two lines max
-        txt = str(txt or "").strip()
-        if len(txt) <= max_chars_line:
-            return [txt], 16
-        # split at spaces
-        words = txt.split()
-        line1 = []
-        while words and len(" ".join(line1 + [words[0]])) <= max_chars_line:
-            line1.append(words.pop(0))
-        line2 = " ".join(words)
-        # reduce fontsize for long titles
-        return [" ".join(line1), line2], 14
-
-    _lines, _fs = _wrap_title(title)
-    if len(_lines) == 1:
-        ax_title.text(0.5, 0.62, _lines[0], ha="center", va="center",
-                      fontsize=_fs, weight="bold", color="white", transform=ax_title.transAxes)
-    else:
-        ax_title.text(0.5, 0.70, _lines[0], ha="center", va="center",
-                      fontsize=_fs, weight="bold", color="white", transform=ax_title.transAxes)
-        ax_title.text(0.5, 0.50, _lines[1], ha="center", va="center",
-                      fontsize=_fs, weight="bold", color="white", transform=ax_title.transAxes)
-    ax_title.text(0.5, 0.28, f"Relatório gerado em {datetime.now().strftime('%d %b %Y')}",
+    # Title + date
+    ax_title.text(0.5, 0.62, title, ha="center", va="center",
+                  fontsize=16, weight="bold", color="white", transform=ax_title.transAxes)
+    ax_title.text(0.5, 0.30, f"Relatório gerado em {datetime.now().strftime('%d %b %Y')}",
                   ha="center", va="center", fontsize=9, color="#cbd5e1", transform=ax_title.transAxes)
 
-    # ======= RADAR (maior) =======
-    # Aumentamos de [2:8] para [2:9] -> mais uma linha vertical para o radar
-    ax_radar = fig.add_subplot(gs_page[2:9, 0:12])  # eixo cartesiano para mplsoccer.Radar
+    # Radar
+    ax_radar = fig.add_subplot(gs_page[2:8, 0:12], projection="polar")
     radar.setup_axis(ax=ax_radar)
-    # fundo leve
-    ax_radar.set_facecolor("#f8fafc")
-    # anéis e parâmetros
-    try:
-        radar.draw_circles(ax=ax_radar, facecolor="#f8fafc", edgecolor="#cbd5e1", alpha=0.35)
-    except Exception:
-        pass
+    radar.draw_circles(ax=ax_radar, facecolor="#f8fafc", edgecolor="#cbd5e1", alpha=0.35)
     try:
         radar.spoke(ax=ax_radar, color="#cbd5e1", linestyle="--", alpha=0.25)
     except Exception:
@@ -1431,153 +1438,44 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
     radar.draw_range_labels(ax=ax_radar, fontsize=9)
     radar.draw_param_labels(ax=ax_radar, fontsize=10)
 
-    # ======= BARRAS (refeito do zero) =======
-    # Grade compacta: 3 colunas, até 3 linhas na primeira página
+    # Bars grid
     cols_per_row = 3
-    total_rows = min((len(metrics) + cols_per_row - 1) // cols_per_row, 3)
-    from matplotlib.gridspec import GridSpecFromSubplotSpec
-    sub_gs = GridSpecFromSubplotSpec(
-        nrows=total_rows,
-        ncols=cols_per_row,
-        subplot_spec=gs_page[9:12, 0:12],
-        wspace=0.16,
-        hspace=0.12
-    )
+    total_rows = min((len(metrics) + cols_per_row - 1) // cols_per_row, 4)
+    sub_gs = GridSpecFromSubplotSpec(nrows=total_rows, ncols=cols_per_row,
+                                     subplot_spec=gs_page[8:12, 0:12], wspace=0.35, hspace=0.55)
 
-    def _draw_bar_clean(ax, m, player_name, row_idx, total_rows_in_grid):
+    def _draw_bar(ax, m, player_name):
         info = _metric_rank_info(df, m, player_name)
         rk, tot, norm = info.get("rank"), info.get("total"), info.get("norm")
         label = f"{m} — {rk}/{tot}" if rk is not None else f"{m}"
-
-        ax.barh([0], [norm if norm is not None else 0], height=0.12, zorder=1)
+        ax.barh([0], [norm if norm is not None else 0])
         ax.set_xlim(0, 1)
-        ax.set_ylim(-0.6, 0.6)
         ax.set_yticks([])
-
-        # ticks só na última linha
-        if row_idx == (total_rows_in_grid - 1):
-            ax.set_xticks([0, 0.5, 1])
-            ax.set_xticklabels(["0%","50%","100%"], fontsize=7)
-            ax.tick_params(axis="x", pad=0)
-        else:
-            ax.set_xticks([0, 0.5, 1])
-            ax.set_xticklabels([])
-
-        # rótulo alinhado ao centro vertical da barra, com bbox branco (evita sobreposição visual)
-        ax.text(0.0, 0.5, label, transform=ax.transAxes,
-                ha="left", va="center", fontsize=8,
-                bbox={"facecolor": "white", "edgecolor": "none", "pad": 0.2}, zorder=5)
-
+        ax.set_xticks([0, 0.5, 1])
+        ax.set_xticklabels(["0%","50%","100%"], fontsize=7)
+        ax.set_title(label, fontsize=9, pad=2)
         for spine in ["top","right","left"]:
             ax.spines[spine].set_visible(False)
 
-    visible_capacity = cols_per_row * total_rows
-    for i, m in enumerate(metrics[:visible_capacity]):
+    for i, m in enumerate(metrics[:cols_per_row * total_rows]):
         r = i // cols_per_row
         c = i % cols_per_row
         ax = fig.add_subplot(sub_gs[r, c])
-        _draw_bar_clean(ax, m, player_a, r, total_rows)
-
-    # ======= EXPORT / MULTI-PAGE =======
-    from matplotlib.backends.backend_pdf import PdfPages
-    remaining_metrics = metrics[visible_capacity:]
+        _draw_bar(ax, m, player_a)
 
     buf = io.BytesIO()
-    with PdfPages(buf) as pdf:
-        pdf.savefig(fig, bbox_inches="tight", dpi=300)
-        plt.close(fig)
-
-        # Páginas extras: A4 sem cabeçalho, grade cheia
-        if remaining_metrics:
-            cols_per_row_extra = 3
-            per_page_rows = 12  # 12 linhas x 3 colunas = 36 métricas por página
-            per_page_capacity = cols_per_row_extra * per_page_rows
-
-            for page_idx in range(0, len(remaining_metrics), per_page_capacity):
-                chunk = remaining_metrics[page_idx: page_idx + per_page_capacity]
-
-                fig2 = plt.figure(figsize=(8.27, 11.69))
-                gs2  = GridSpec(nrows=12, ncols=12, figure=fig2)
-
-                sub = GridSpecFromSubplotSpec(
-                    nrows=per_page_rows,
-                    ncols=cols_per_row_extra,
-                    subplot_spec=gs2[0:12, 0:12],
-                    wspace=0.16,
-                    hspace=0.12
-                )
-
-                for i2, m2 in enumerate(chunk):
-                    rr = i2 // cols_per_row_extra
-                    cc = i2 % cols_per_row_extra
-                    axb = fig2.add_subplot(sub[rr, cc])
-
-                    info = _metric_rank_info(df, m2, player_a)
-                    rk, tot, norm = info.get("rank"), info.get("total"), info.get("norm")
-                    label = f"{m2} — {rk}/{tot}" if rk is not None else f"{m2}"
-
-                    axb.barh([0], [norm if norm is not None else 0], height=0.12, zorder=1)
-                    axb.set_xlim(0, 1)
-                    axb.set_ylim(-0.6, 0.6)
-                    axb.set_yticks([])
-
-                    if rr == (per_page_rows - 1):
-                        axb.set_xticks([0, 0.5, 1])
-                        axb.set_xticklabels(["0%","50%","100%"], fontsize=7)
-                        axb.tick_params(axis="x", pad=0)
-                    else:
-                        axb.set_xticks([0, 0.5, 1])
-                        axb.set_xticklabels([])
-
-                    axb.text(0.0, 0.5, label, transform=axb.transAxes,
-                             ha="left", va="center", fontsize=8,
-                             bbox={"facecolor": "white", "edgecolor": "none", "pad": 0.2}, zorder=5)
-
-                    for spine in ["top","right","left"]:
-                        axb.spines[spine].set_visible(False)
-
-                pdf.savefig(fig2, bbox_inches="tight", dpi=300)
-                plt.close(fig2)
-
+    fig.savefig(buf, format="pdf", dpi=300, bbox_inches="tight", pad_inches=0.25)
+    plt.close(fig)
     buf.seek(0)
     return buf
 
+# Alias to ensure legacy callers use the new layout unambiguously
+make_radar_bars_pdf_a4 = make_radar_bars_pdf_a4_pro
 
-# Download button for combined PNG
-if p1 and metrics_sel:
-    png_buf = make_radar_bars_png(
-        df_all,
-        p1,
-        None if p2 == "—" else p2,
-        metrics_sel,
-        color_a,
-        color_b,
-    )
-    st.download_button(
-        "⬇️ Download Radar + Barras (PNG)",
-        data=png_buf.getvalue(),
-        file_name="radar_barras.png",
-        mime="image/png",
-    )
+Download Radar + Barras (PDF A4)", data=pdf_buf.getvalue(),
+                       file_name="radar_barras_A4.pdf", mime="application/pdf")
 
-# Download button for A4 PDF (PRO)
-if p1 and metrics_sel:
-    pdf_buf = make_radar_bars_pdf_a4_pro(
-        df_all,
-        p1,
-        None if p2 == "—" else p2,
-        metrics_sel,
-        color_a,
-        color_b,
-        player_photo_bytes=player_photo_bytes,
-        crest_bytes=crest_bytes,
-    )
-    st.download_button(
-        "⬇️ Download Radar + Barras (PDF A4)",
-        data=pdf_buf.getvalue(),
-        file_name="radar_barras_A4.pdf",
-        mime="application/pdf",
-    )
+
 with colB:
     if p1 and metrics_sel:
         plot_radar(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b)
@@ -1884,13 +1782,13 @@ def export_player_pdf_a4_bars(df: pd.DataFrame, player_name: str,
     if not plot_blocks:
         raise ValueError("No metrics available to plot for the selected player/cohort.")
 
-    a4_portrait = (8.27, 11.69)
+    a4_landscape = (11.69, 8.27)
     with PdfPages(output_path) as pdf:
         per_page = 3
         for page_idx in range(0, len(plot_blocks), per_page):
             page_blocks = plot_blocks[page_idx:page_idx+per_page]
 
-            fig = plt.figure(figsize=a4_portrait)
+            fig = plt.figure(figsize=a4_landscape)
             fig.suptitle(
                 f"{player_name} — {pos or ''} — {league or ''}  |  Percentis por coorte"
                 + (f"  |  Minutos: {int(minutes)}" if not np.isnan(minutes) else ""),
@@ -2034,7 +1932,7 @@ def make_radar_bars_pdf_a4(df: pd.DataFrame, player_a: str, player_b: str | None
                   ha="center", va="center", fontsize=9, color="#cbd5e1", transform=ax_title.transAxes)
 
     # ===================== RADAR =====================
-    ax_radar = fig.add_subplot(gs_page[2:8, 0:12])
+    ax_radar = fig.add_subplot(gs_page[2:8, 0:12], projection="polar")
     radar.setup_axis(ax=ax_radar)
     radar.draw_circles(ax=ax_radar, facecolor="#f8fafc", edgecolor="#cbd5e1", alpha=0.35)
     try:
