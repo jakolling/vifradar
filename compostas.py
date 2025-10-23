@@ -858,7 +858,7 @@ elif up is not None:
         st.exception(e)
 
 if df is not None and not df.empty:
-    df_all = _fix_npxg_block(df.copy(key='auto_318b997bb4'))
+    df_all = _fix_npxg_block(df.copy())
 page = st.sidebar.radio("📑 Pages", ["Dashboard", "Metrics Documentation", "Ferramenta de Busca"])
 
 if page == "Metrics Documentation":
@@ -1090,7 +1090,7 @@ if page == "Ferramenta de Busca":
     st.caption("Filtre jogadores por **percentis mínimos** em um *position preset*. Os percentis são calculados no **dataset completo** (com inversão de métricas negativas), enquanto o filtro de **minutos** é aplicado ao final.")
 
     # Seleção de preset e configuração dos limiares
-    preset_name = st.selectbox("Position preset", options=list(PRESETS.keys(), key='auto_f8c508834c'))
+    preset_name = st.selectbox("Position preset", options=list(PRESETS.keys()))
     metrics_for_preset = PRESETS[preset_name]
 
     use_global = st.checkbox("Usar um único percentil mínimo para todas as métricas", value=True)
@@ -1109,7 +1109,7 @@ if page == "Ferramenta de Busca":
     def _percentile_rank_series(s: pd.Series, ascending: bool) -> pd.Series:
         s_num = pd.to_numeric(s, errors="coerce")
         mask = s_num.notna()
-        n = int(mask.sum(key='auto_411efdbcd3'))
+        n = int(mask.sum())
         out = pd.Series(np.nan, index=s.index)
         if n <= 1:
             return out
@@ -1270,7 +1270,7 @@ def _merge_presets(preset_names: list[str], df: pd.DataFrame) -> list[str]:
 
 colA, colB = st.columns([1, 2])
 with colA:
-    all_presets = list(PRESETS.keys(key='auto_4d1a4449e0'))
+    all_presets = list(PRESETS.keys())
     selected_presets = st.multiselect(
         "Position presets (choose up to 3)",
         options=all_presets,
@@ -1284,7 +1284,7 @@ with colA:
 
     metrics_all = sorted([
         c for c in df_all.columns
-        if c not in ID_COLS_CANDIDATES and pd.api.types.is_numeric_dtype(df_all[c], key='auto_4904937180')
+        if c not in ID_COLS_CANDIDATES and pd.api.types.is_numeric_dtype(df_all[c])
     ])
 
     default_metrics = metrics_from_presets[:16] if metrics_from_presets else []
@@ -1297,7 +1297,7 @@ with colA:
     if len(metrics_sel) > 16:
         st.info(f"You selected {len(metrics_sel)} metrics; only the first 16 will be plotted.")
 
-    players = sorted(df_all["Player"].dropna(key='auto_ec157120ca').unique().tolist()) if "Player" in df_all.columns else []
+    players = sorted(df_all["Player"].dropna().unique().tolist()) if "Player" in df_all.columns else []
     p1 = st.selectbox("Player A", players)
     p2 = st.selectbox("Player B (optional)", ["—"] + players)
     color_a = st.color_picker("Color A", "#2A9D8F")
@@ -1541,7 +1541,7 @@ if p1 and metrics_sel:
     )
     st.download_button(
         "⬇️ Download Radar + Barras (PNG)",
-        data=png_buf.getvalue(key='auto_f125edb9d1'),
+        data=png_buf.getvalue(),
         file_name="radar_barras.png",
         mime="image/png",
     )
@@ -1560,7 +1560,7 @@ if p1 and metrics_sel:
     )
     st.download_button(
         "⬇️ Download Radar + Barras (PDF A4)",
-        data=pdf_buf.getvalue(key='auto_d428953352'),
+        data=pdf_buf.getvalue(),
         file_name="radar_barras_A4.pdf",
         mime="application/pdf",
     )
@@ -1573,7 +1573,7 @@ with colB:
 st.markdown("<div class='section'>Export</div>", unsafe_allow_html=True)
 st.download_button(
     "Download full CSV",
-    df_all.to_csv(index=False, key='auto_26580ac176').encode("utf-8"),
+    df_all.to_csv(index=False).encode("utf-8"),
     file_name="composite_metrics_base.csv",
     mime="text/csv",
 )
