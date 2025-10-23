@@ -1308,11 +1308,9 @@ with colA:
     player_photo_bytes = player_photo_up.read() if player_photo_up else None
     crest_bytes = crest_up.read() if crest_up else None
 
-# Download button for combined PNG
-if p1 and metrics_sel:
-    png_buf = make_radar_bars_png(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b)
-    st.download_button("⬇️ Download Radar + Barras (PDF A4)", data=pdf_buf.getvalue(), file_name="radar_barras_A4.pdf", mime="application/pdf")
-# === PRO PDF (moved before call) ===
+
+
+# === PRO PDF (definition placed before usage) ===
 def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
                                color_a: str, color_b: str = "#E76F51",
                                player_photo_bytes: bytes | None = None,
@@ -1443,10 +1441,25 @@ def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | 
     buf.seek(0)
     return buf
 
-# Alias to ensure legacy callers use the new layout unambiguously
-make_radar_bars_pdf_a4 = make_radar_bars_pdf_a4_pro
 
+# Download button for combined PNG
+if p1 and metrics_sel:
+    png_buf = make_radar_bars_png(
+        df_all,
+        p1,
+        None if p2 == "—" else p2,
+        metrics_sel,
+        color_a,
+        color_b,
+    )
+    st.download_button(
+        "⬇️ Download Radar + Barras (PNG)",
+        data=png_buf.getvalue(),
+        file_name="radar_barras.png",
+        mime="image/png",
+    )
 
+# Download button for A4 PDF (PRO)
 if p1 and metrics_sel:
     pdf_buf = make_radar_bars_pdf_a4_pro(
         df_all,
@@ -1456,12 +1469,14 @@ if p1 and metrics_sel:
         color_a,
         color_b,
         player_photo_bytes=player_photo_bytes,
-        crest_bytes=crest_bytes
+        crest_bytes=crest_bytes,
     )
-    st.download_button("⬇️ Download Radar + Barras (PDF A4)", data=pdf_buf.getvalue(), file_name="radar_barras_A4.pdf", mime="application/pdf")
-
-
-
+    st.download_button(
+        "⬇️ Download Radar + Barras (PDF A4)",
+        data=pdf_buf.getvalue(),
+        file_name="radar_barras_A4.pdf",
+        mime="application/pdf",
+    )
 with colB:
     if p1 and metrics_sel:
         plot_radar(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b)
