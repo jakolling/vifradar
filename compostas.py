@@ -1384,7 +1384,8 @@ def make_radar_bars_png(df: pd.DataFrame, player_a: str, player_b: Optional[str]
     gs = GridSpec(nrows=2 + total_bar_rows, ncols=3, figure=fig)
 
     # Radar spans first 2 rows
-    ax_radar = fig.add_subplot(gs[0:2, :])
+    _ = _radar_factory(len(metrics))
+    ax_radar = fig.add_subplot(gs[0:2, :], projection='radar')
     radar.setup_axis(ax=ax_radar)
     radar.draw_circles(ax=ax_radar, facecolor="#f3f3f3", edgecolor="#c9c9c9", alpha=0.18)
     try:
