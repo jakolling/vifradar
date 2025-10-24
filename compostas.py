@@ -1346,11 +1346,15 @@ def build_player_report_docx(
         p = header.paragraphs[0]._p
         p.getparent().remove(p)
 
-    header_table = header.add_table(rows=1, cols=2)
+    usable_width = section.page_width - section.left_margin - section.right_margin
+    crest_width = Inches(0.5)
+    name_width = max(usable_width - crest_width, Inches(4))
+
+    header_table = header.add_table(rows=1, cols=2, width=usable_width)
     header_table.autofit = False
     header_table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    header_table.columns[0].width = Inches(6.0)
-    header_table.columns[1].width = Inches(0.5)
+    header_table.columns[0].width = name_width
+    header_table.columns[1].width = crest_width
 
     doc_name_cell, crest_cell = header_table.rows[0].cells
     doc_name_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
