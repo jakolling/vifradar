@@ -1527,6 +1527,94 @@ def build_player_report_docx(
     footer_left_paragraph.text = (
         "Confidential – Authorized recipients only."
     )
+    _set_cell_margins(photo_cell, top=200, bottom=200, start=200, end=200)
+    photo_paragraph = photo_cell.paragraphs[0]
+    photo_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    if photo_stream is not None:
+        photo_stream.seek(0)
+        photo_paragraph.add_run().add_picture(photo_stream, width=Cm(12))
+    else:
+        placeholder_run = photo_paragraph.add_run("PLAYER PHOTO")
+        placeholder_run.font.size = Pt(12)
+        placeholder_run.font.color.rgb = muted_text
+        placeholder_run.bold = True
+
+    doc.add_paragraph("")
+    doc.add_page_break()
+
+    def _add_section_heading(text: str):
+        heading = doc.add_paragraph(text, style="H1")
+        heading.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        _add_bottom_rule(heading)
+
+    _add_section_heading("Player information")
+
+    info_items = [
+        ("Club", player_club),
+        ("Position", player_position),
+        ("Age", str(player_age)),
+        ("Minutes played", f"{minutes}"),
+        ("Competition level", competition_level),
+        ("Report date", report_date),
+        ("Sample size", str(sample_size)),
+    ]
+
+    info_table_rows = math.ceil(len(info_items) / 2)
+    info_table = doc.add_table(rows=info_table_rows, cols=2)
+    info_table.autofit = False
+    for col in info_table.columns:
+        col.width = Inches(3.3)
+
+    for idx, (label, value) in enumerate(info_items):
+        row_idx = idx // 2
+        col_idx = idx % 2
+        cell = info_table.rows[row_idx].cells[col_idx]
+        _set_cell_border(
+            cell,
+            top={"sz": 12, "color": neutral_border_hex},
+            bottom={"sz": 12, "color": neutral_border_hex},
+            left={"sz": 12, "color": neutral_border_hex},
+            right={"sz": 12, "color": neutral_border_hex},
+        )
+        _set_cell_margins(cell, top=120, bottom=140, start=200, end=200)
+        cell.text = ""
+        color_bar = cell.add_paragraph(" ")
+        color_bar.paragraph_format.space_after = Pt(6)
+        color_bar.paragraph_format.line_spacing = 1
+        color_bar_run = color_bar.runs[0]
+        color_bar_run.font.size = Pt(1)
+        _shade_paragraph(color_bar, accent_hex)
+        label_para = cell.add_paragraph(label, style="SmallCaps")
+        label_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        value_para = cell.add_paragraph(value, style="KPI")
+        value_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+
+    if len(info_items) % 2 != 0:
+        empty_cell = info_table.rows[-1].cells[-1]
+        empty_cell.text = ""
+
+    doc.add_paragraph("")
+
+    notes_container = doc.add_table(rows=1, cols=1)
+    notes_container.autofit = False
+    notes_cell = notes_container.rows[0].cells[0]
+    _apply_cell_shading(notes_cell, "F9FAFB")
+    _set_cell_border(
+        notes_cell,
+        top={"sz": 12, "color": neutral_border_hex},
+        bottom={"sz": 12, "color": neutral_border_hex},
+        left={"sz": 12, "color": neutral_border_hex},
+        right={"sz": 12, "color": neutral_border_hex},
+    )
+    _set_cell_margins(notes_cell, top=160, bottom=160, start=200, end=200)
+    notes_title_para = notes_cell.paragraphs[0]
+    notes_title_para.style = doc.styles["H2"]
+    notes_title_para.text = "Editable notes"
+    notes_text = notes_cell.add_paragraph(
+        "Add tactical context, coaching directives, or presentation notes here before exporting to Canva.",
+        style="Body",
+    )
+    notes_text.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
     footer_center_paragraph = footer_center.paragraphs[0]
     footer_center_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
