@@ -1465,81 +1465,6 @@ def build_player_report_docx(
     footer_left_paragraph.text = (
         "Confidential – Authorized recipients only."
     )
-    strap_line.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-    crest_cell.paragraphs[0].clear()
-    crest_frame = crest_cell.add_table(rows=1, cols=1)
-    crest_frame.autofit = False
-    crest_frame.columns[0].width = crest_width
-    crest_placeholder = crest_frame.rows[0].cells[0]
-    _set_cell_border(
-        crest_placeholder,
-        top={"sz": 12, "color": neutral_border_hex},
-        bottom={"sz": 12, "color": neutral_border_hex},
-        left={"sz": 12, "color": neutral_border_hex},
-        right={"sz": 12, "color": neutral_border_hex},
-    )
-    _set_cell_margins(crest_placeholder, top=60, bottom=60, start=60, end=60)
-    crest_paragraph = crest_placeholder.paragraphs[0]
-    crest_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    if logo_stream is not None:
-        logo_stream.seek(0)
-        crest_paragraph.add_run().add_picture(logo_stream, width=crest_width)
-    else:
-        crest_run = crest_paragraph.add_run("CLUB\nCREST")
-        crest_run.font.size = Pt(8)
-        crest_run.font.color.rgb = muted_text
-        crest_run.font.bold = True
-
-    footer = section.footer
-    footer.is_linked_to_previous = False
-    while footer.paragraphs:
-        p = footer.paragraphs[0]._p
-        p.getparent().remove(p)
-
-    footer_table = footer.add_table(rows=1, cols=3, width=usable_width)
-    footer_table.autofit = False
-    widths = [Inches(2.8), Inches(2.8), Inches(0.9)]
-    for idx, col in enumerate(footer_table.columns):
-        col.width = widths[idx]
-
-    footer_left, footer_center, footer_right = footer_table.rows[0].cells
-    footer_left_paragraph = footer_left.paragraphs[0]
-    footer_left_paragraph.style = doc.styles["Note"]
-    footer_left_paragraph.text = (
-        "Confidential – Authorized recipients only."
-    )
-    _set_cell_margins(photo_cell, top=200, bottom=200, start=200, end=200)
-    photo_paragraph = photo_cell.paragraphs[0]
-    photo_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    if photo_stream is not None:
-        photo_stream.seek(0)
-        photo_paragraph.add_run().add_picture(photo_stream, width=Cm(12))
-    else:
-        placeholder_run = photo_paragraph.add_run("PLAYER PHOTO")
-        placeholder_run.font.size = Pt(12)
-        placeholder_run.font.color.rgb = muted_text
-        placeholder_run.bold = True
-
-    doc.add_paragraph("")
-    doc.add_page_break()
-
-    def _add_section_heading(text: str):
-        heading = doc.add_paragraph(text, style="H1")
-        heading.alignment = WD_ALIGN_PARAGRAPH.LEFT
-        _add_bottom_rule(heading)
-
-    _add_section_heading("Player information")
-
-    info_items = [
-        ("Club", player_club),
-        ("Position", player_position),
-        ("Age", str(player_age)),
-        ("Minutes played", f"{minutes}"),
-        ("Competition level", competition_level),
-        ("Report date", report_date),
-        ("Sample size", str(sample_size)),
-    ]
 
     footer_center_paragraph = footer_center.paragraphs[0]
     footer_center_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -1606,10 +1531,23 @@ def build_player_report_docx(
     subtitle_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     name_para = info_cell.add_paragraph(athlete_name, style="TitleHero")
     name_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    strap_line = info_cell.add_paragraph(
-        f"{player_position} · {player_club}",
-        style="Body",
+
+    strap_text = " · ".join(
+        [
+            value
+            for value in (
+                _clean(player_position) or "",
+                _clean(player_club) or "",
+            )
+            if value
+        ]
     )
+    try:
+        strap_line = info_cell.add_paragraph(style="Body")
+    except KeyError:
+        strap_line = info_cell.add_paragraph()
+    if strap_text:
+        strap_line.add_run(strap_text)
     strap_line.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
     _set_cell_border(
