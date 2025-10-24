@@ -12,7 +12,7 @@ from matplotlib.ticker import FuncFormatter, MaxNLocator
 from mplsoccer import Radar
 from docx import Document
 from docx.enum.section import WD_ORIENTATION
-from docx.enum.table import WD_ALIGN_VERTICAL
+from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Inches, Pt, RGBColor, Mm
 from docx.oxml import OxmlElement
@@ -1015,15 +1015,15 @@ def build_player_report_docx(
     team_logo: bytes | io.BytesIO | None = None,
 ) -> io.BytesIO:
     if "Player" not in df.columns:
-        raise ValueError("DataFrame precisa conter a coluna 'Player'.")
+        raise ValueError("DataFrame must contain the 'Player' column.")
 
     metrics = [m for m in (metrics or []) if m in df.columns][:16]
     if len(metrics) < 3:
-        raise ValueError("Selecione ao menos 3 métricas válidas para o relatório DOCX.")
+        raise ValueError("Please select at least three valid metrics for the DOCX report.")
 
     player_rows = df[df["Player"] == player_name]
     if player_rows.empty:
-        raise ValueError(f"Jogador '{player_name}' não encontrado no dataset.")
+        raise ValueError(f"Player '{player_name}' was not found in the dataset.")
 
     row = player_rows.iloc[0]
 
@@ -1041,7 +1041,7 @@ def build_player_report_docx(
             if current_pos is not None:
                 data.seek(current_pos)
             return io.BytesIO(content)
-        raise TypeError("Imagens devem ser bytes ou arquivos em memória (BytesIO).")
+        raise TypeError("Images must be provided as bytes or in-memory files (BytesIO).")
 
     photo_stream = _to_stream(player_photo)
     logo_stream = _to_stream(team_logo)
@@ -1072,6 +1072,8 @@ def build_player_report_docx(
     margin = Inches(0.6)
     section.left_margin = section.right_margin = margin
     section.top_margin = section.bottom_margin = margin
+    section.header_distance = Inches(0.3)
+    section.footer_distance = Inches(0.4)
 
     def _apply_cell_shading(cell, fill: str):
         tc_pr = cell._tc.get_or_add_tcPr()
@@ -1083,19 +1085,29 @@ def build_player_report_docx(
         shd.set(qn("w:color"), "auto")
         shd.set(qn("w:fill"), fill)
 
-    banner = doc.add_table(rows=1, cols=3)
-    banner.autofit = False
-    for col, width in zip(banner.columns, [Inches(1.7), Inches(4.9), Inches(1.7)]):
+    placeholder_color = RGBColor(226, 232, 240)
+
+    header = section.header
+    header.is_linked_to_previous = False
+    while header.paragraphs:
+        p = header.paragraphs[0]._p
+        p.getparent().remove(p)
+
+    header_table = header.add_table(rows=1, cols=3)
+    header_table.autofit = False
+    header_table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    for col, width in zip(header_table.columns, [Inches(1.8), Inches(4.5), Inches(1.8)]):
         col.width = width
-    for cell in banner.rows[0].cells:
+
+    photo_cell, headline_cell, logo_cell = header_table.rows[0].cells
+    for cell in (photo_cell, headline_cell, logo_cell):
         _apply_cell_shading(cell, accent_color)
-        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.TOP
+        if cell.paragraphs:
+            cell.paragraphs[0].paragraph_format.space_after = Pt(0)
 
-    photo_cell, headline_cell, logo_cell = banner.rows[0].cells
-
-    def _header_image(cell, stream: io.BytesIO | None, placeholder: str, width: float):
-        paragraph = cell.paragraphs[0]
-        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    def _render_header_image(paragraph, stream: io.BytesIO | None, placeholder: str, width: float, alignment) -> None:
+        paragraph.alignment = alignment
         if stream is not None:
             stream.seek(0)
             paragraph.add_run().add_picture(stream, width=Inches(width))
@@ -1103,37 +1115,55 @@ def build_player_report_docx(
             run = paragraph.add_run(placeholder)
             run.bold = True
             run.font.size = Pt(9)
-            run.font.color.rgb = RGBColor(226, 232, 240)
+            run.font.color.rgb = placeholder_color
 
-    _header_image(photo_cell, photo_stream, "Foto do atleta", width=1.5)
+    photo_paragraph = photo_cell.paragraphs[0]
+    _render_header_image(photo_paragraph, photo_stream, "PLAYER PHOTO", width=1.55, alignment=WD_ALIGN_PARAGRAPH.LEFT)
 
     headline_paragraph = headline_cell.paragraphs[0]
     headline_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    headline_run = headline_paragraph.add_run(f"Relatório de Desempenho — {player_name}")
+    headline_run = headline_paragraph.add_run(f"{player_name} — Performance Report")
     headline_run.bold = True
     headline_run.font.size = Pt(20)
     headline_run.font.color.rgb = RGBColor(255, 255, 255)
 
-    subtitle_paragraph = headline_cell.add_paragraph("Radar & Percentis das métricas selecionadas")
+    subtitle_paragraph = headline_cell.add_paragraph("Radar and percentile summary of selected metrics")
     subtitle_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
     if subtitle_paragraph.runs:
         subtitle_paragraph.runs[0].font.size = Pt(11)
-        subtitle_paragraph.runs[0].font.color.rgb = RGBColor(226, 232, 240)
+        subtitle_paragraph.runs[0].font.color.rgb = placeholder_color
 
-    _header_image(logo_cell, logo_stream, "Escudo do time", width=1.3)
+    date_paragraph = logo_cell.paragraphs[0]
+    date_paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    date_run = date_paragraph.add_run(datetime.now().strftime("%B %d, %Y"))
+    date_run.bold = True
+    date_run.font.size = Pt(11)
+    date_run.font.color.rgb = placeholder_color
 
-    stamp_paragraph = logo_cell.add_paragraph(datetime.now().strftime("%d/%m/%Y"))
-    stamp_paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    if stamp_paragraph.runs:
-        stamp_paragraph.runs[0].bold = True
-        stamp_paragraph.runs[0].font.size = Pt(11)
-        stamp_paragraph.runs[0].font.color.rgb = RGBColor(226, 232, 240)
+    sample_paragraph = logo_cell.add_paragraph(f"Sample size: {df.shape[0]} players")
+    sample_paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    if sample_paragraph.runs:
+        sample_paragraph.runs[0].font.size = Pt(9)
+        sample_paragraph.runs[0].font.color.rgb = placeholder_color
 
-    base_paragraph = logo_cell.add_paragraph("Base de comparação: {total}".format(total=df.shape[0]))
-    base_paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    if base_paragraph.runs:
-        base_paragraph.runs[0].font.size = Pt(9)
-        base_paragraph.runs[0].font.color.rgb = RGBColor(226, 232, 240)
+    crest_paragraph = logo_cell.add_paragraph()
+    crest_paragraph.paragraph_format.space_before = Pt(4)
+    _render_header_image(crest_paragraph, logo_stream, "CLUB CREST", width=1.35, alignment=WD_ALIGN_PARAGRAPH.RIGHT)
+
+    footer = section.footer
+    footer.is_linked_to_previous = False
+    while footer.paragraphs:
+        p = footer.paragraphs[0]._p
+        p.getparent().remove(p)
+
+    footer_paragraph = footer.add_paragraph(
+        "Confidential – This report contains proprietary information for authorized recipients only."
+        " Do not copy, share, or distribute without written permission."
+    )
+    footer_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    if footer_paragraph.runs:
+        footer_paragraph.runs[0].font.size = Pt(8.5)
+        footer_paragraph.runs[0].font.color.rgb = RGBColor(110, 117, 130)
 
     doc.add_paragraph("")
 
@@ -1171,14 +1201,14 @@ def build_player_report_docx(
 
     info_lines: list[str] = []
     if team:
-        info_lines.append(f"Time: {team}")
+        info_lines.append(f"Club: {team}")
     if position:
-        info_lines.append(f"Posição: {position}")
+        info_lines.append(f"Position: {position}")
     if age:
-        info_lines.append(f"Idade: {age}")
+        info_lines.append(f"Age: {age}")
     if minutes is not None:
-        info_lines.append(f"Minutos: {minutes}")
-    info_lines.append("Nível competitivo: {0}".format(_clean(row.get("League")) or "—"))
+        info_lines.append(f"Minutes played: {minutes}")
+    info_lines.append("Competition level: {0}".format(_clean(row.get("League")) or "—"))
 
     for line in info_lines:
         p = profile_cell.add_paragraph(line)
@@ -1188,7 +1218,7 @@ def build_player_report_docx(
 
     doc.add_paragraph("")
 
-    chart_title = doc.add_paragraph("Análise gráfica")
+    chart_title = doc.add_paragraph("Visual analysis")
     chart_title.alignment = WD_ALIGN_PARAGRAPH.LEFT
     if chart_title.runs:
         chart_title.runs[0].bold = True
@@ -1213,7 +1243,7 @@ def build_player_report_docx(
     pic_run.add_picture(radar_png, width=Inches(6.9))
 
     note = doc.add_paragraph(
-        "Percentis calculados sobre todo o dataset carregado (métricas negativas invertidas automaticamente)."
+        "Percentiles calculated on the loaded dataset (negative-impact metrics are reversed automatically)."
     )
     note.alignment = WD_ALIGN_PARAGRAPH.CENTER
     if note.runs:
@@ -1222,7 +1252,7 @@ def build_player_report_docx(
 
     doc.add_paragraph("")
 
-    insights_header = doc.add_paragraph("Insights rápidos")
+    insights_header = doc.add_paragraph("Quick insights")
     insights_header.alignment = WD_ALIGN_PARAGRAPH.LEFT
     if insights_header.runs:
         insights_header.runs[0].bold = True
@@ -1236,11 +1266,11 @@ def build_player_report_docx(
     strengths_cell, dev_cell = insight_table.rows[0].cells
 
     strengths_cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.LEFT
-    strengths_title = strengths_cell.paragraphs[0].add_run("Destaques (≥ 70º percentil)")
+    strengths_title = strengths_cell.paragraphs[0].add_run("Standouts (≥ 70th percentile)")
     strengths_title.bold = True
 
     dev_cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.LEFT
-    dev_title = dev_cell.paragraphs[0].add_run("Pontos de desenvolvimento (≤ 40º percentil)")
+    dev_title = dev_cell.paragraphs[0].add_run("Development areas (≤ 40th percentile)")
     dev_title.bold = True
 
     metric_percentiles: list[tuple[str, float, float | None]] = []
@@ -1262,7 +1292,7 @@ def build_player_report_docx(
 
     def _render_list(cell, items):
         if not items:
-            placeholder = cell.add_paragraph("Sem destaques suficientes.")
+            placeholder = cell.add_paragraph("No items to highlight yet.")
             placeholder.paragraph_format.space_before = Pt(4)
             if placeholder.runs:
                 placeholder.runs[0].font.size = Pt(10)
@@ -1271,8 +1301,9 @@ def build_player_report_docx(
             bullet = cell.add_paragraph(style="List Bullet")
             bullet.paragraph_format.left_indent = Inches(0.15)
             bullet.paragraph_format.space_before = Pt(2)
+            suffix = _format_metric_value(metric_name, metric_value)
             run = bullet.add_run(
-                f"{metric_name}: {pct_value:.0f}º pct ({_format_metric_value(metric_name, metric_value)})"
+                f"{metric_name}: {pct_value:.0f}th pct ({suffix})"
             )
             run.font.size = Pt(10)
 
@@ -1281,7 +1312,7 @@ def build_player_report_docx(
 
     doc.add_paragraph("")
 
-    pct_header = doc.add_paragraph("Tabela detalhada de percentis")
+    pct_header = doc.add_paragraph("Detailed percentile table")
     pct_header.alignment = WD_ALIGN_PARAGRAPH.LEFT
     if pct_header.runs:
         pct_header.runs[0].bold = True
@@ -1293,7 +1324,7 @@ def build_player_report_docx(
         pass
 
     header_cells = pct_table.rows[0].cells
-    header_titles = ["Métrica", "Percentil", "Valor"]
+    header_titles = ["Metric", "Percentile", "Value"]
     for cell, text in zip(header_cells, header_titles):
         cell.text = text
         _apply_cell_shading(cell, accent_color)
