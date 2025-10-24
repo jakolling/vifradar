@@ -1395,7 +1395,7 @@ def build_player_report_docx(
         p = footer.paragraphs[0]._p
         p.getparent().remove(p)
 
-    footer_table = footer.add_table(rows=1, cols=3)
+    footer_table = footer.add_table(rows=1, cols=3, width=usable_width)
     footer_table.autofit = False
     widths = [Inches(2.8), Inches(2.8), Inches(0.9)]
     for idx, col in enumerate(footer_table.columns):
