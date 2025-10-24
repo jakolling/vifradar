@@ -1043,12 +1043,18 @@ def build_player_report_docx(
     neutral_bg = "F2F4F8"
     doc = Document()
 
-    base_style = doc.styles.get("Normal")
+    def _get_style(name: str):
+        try:
+            return doc.styles[name]
+        except KeyError:
+            return None
+
+    base_style = _get_style("Normal")
     if base_style is not None:
         base_style.font.name = "Calibri"
         base_style.font.size = Pt(10.5)
     for heading_name in ["Heading 1", "Heading 2", "Heading 3"]:
-        heading = doc.styles.get(heading_name)
+        heading = _get_style(heading_name)
         if heading is not None:
             heading.font.name = "Calibri"
 
