@@ -1286,15 +1286,20 @@ def build_player_report_docx(
     h1_style.font.size = Pt(20)
     h1_style.font.bold = True
     h1_style.font.color.rgb = text_primary
-    h1_style.paragraph_format.space_before = Pt(6)
-    h1_style.paragraph_format.space_after = Pt(8)
+    h1_style.paragraph_format.space_before = Pt(4)
+    h1_style.paragraph_format.space_after = Pt(6)
     h1_style.paragraph_format.line_spacing = 1.1
+    h1_style.paragraph_format.keep_with_next = True
+    h1_style.paragraph_format.page_break_before = False
 
     h2_style = _ensure_style("H2")
     h2_style.font.name = "Calibri"
     h2_style.font.size = Pt(14)
     h2_style.font.bold = True
     h2_style.font.color.rgb = text_primary
+    h2_style.paragraph_format.space_before = Pt(2)
+    h2_style.paragraph_format.space_after = Pt(2)
+    h2_style.paragraph_format.keep_with_next = True
 
     body_style = _ensure_style("Body")
     body_style.font.name = "Calibri"
@@ -1407,6 +1412,14 @@ def build_player_report_docx(
         bottom.set(qn("w:space"), "1")
         bottom.set(qn("w:color"), color)
 
+    def _add_spacer(height_pt: float = 6.0) -> None:
+        spacer = doc.add_paragraph()
+        spacer.style = doc.styles["Body"]
+        spacer.paragraph_format.space_before = Pt(0)
+        spacer.paragraph_format.space_after = Pt(height_pt)
+        spacer.paragraph_format.line_spacing = 1
+        spacer.add_run("")
+
     def _add_page_field(paragraph, instruction: str) -> None:
         run = paragraph.add_run()
         fld_begin = OxmlElement("w:fldChar")
@@ -1424,7 +1437,7 @@ def build_player_report_docx(
 
         result_run = paragraph.add_run()
         result_text = OxmlElement("w:t")
-        result_text.text = "1"
+        result_text.text = " "
         result_run._r.append(result_text)
 
         fld_end = OxmlElement("w:fldChar")
@@ -1496,7 +1509,7 @@ def build_player_report_docx(
     hero_row = hero_table.rows[0]
     for cell in hero_row.cells:
         _apply_cell_shading(cell, "F9FAFB")
-        _set_cell_margins(cell, top=200, bottom=200, start=200, end=200)
+        _set_cell_margins(cell, top=140, bottom=140, start=200, end=200)
         cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
     photo_cell, info_cell, crest_cell = hero_row.cells
@@ -1511,6 +1524,7 @@ def build_player_report_docx(
     photo_cell.text = ""
     photo_para = photo_cell.paragraphs[0]
     photo_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    photo_para.paragraph_format.space_after = Pt(0)
     if photo_stream is not None:
         photo_stream.seek(0)
         photo_para.add_run().add_picture(photo_stream, width=Cm(hero_left_cm - 1.0))
@@ -1523,14 +1537,21 @@ def build_player_report_docx(
     info_cell.text = ""
     info_band = info_cell.paragraphs[0]
     info_band.text = " "
-    info_band.paragraph_format.space_after = Pt(6)
+    info_band.paragraph_format.space_before = Pt(0)
+    info_band.paragraph_format.space_after = Pt(4)
     _shade_paragraph(info_band, accent_hex)
     title_para = info_cell.add_paragraph(primary_title, style="SmallCaps")
     title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    title_para.paragraph_format.space_before = Pt(0)
+    title_para.paragraph_format.space_after = Pt(4)
     subtitle_para = info_cell.add_paragraph(subtitle, style="Tag")
     subtitle_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    subtitle_para.paragraph_format.space_before = Pt(0)
+    subtitle_para.paragraph_format.space_after = Pt(2)
     name_para = info_cell.add_paragraph(athlete_name, style="TitleHero")
     name_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    name_para.paragraph_format.space_before = Pt(2)
+    name_para.paragraph_format.space_after = Pt(6)
 
     strap_text = " · ".join(
         [
@@ -1560,6 +1581,7 @@ def build_player_report_docx(
     crest_cell.text = ""
     crest_para = crest_cell.paragraphs[0]
     crest_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    crest_para.paragraph_format.space_after = Pt(0)
     if logo_stream is not None:
         logo_stream.seek(0)
         crest_para.add_run().add_picture(logo_stream, width=Cm(hero_right_cm - 1.0))
@@ -1569,7 +1591,7 @@ def build_player_report_docx(
         crest_run.font.bold = True
         crest_run.font.color.rgb = muted_text
 
-    doc.add_paragraph("")
+    _add_spacer(8)
 
     def _add_section_heading(text: str):
         heading = doc.add_paragraph(text, style="H1")
@@ -1605,25 +1627,31 @@ def build_player_report_docx(
             left={"sz": 12, "color": neutral_border_hex},
             right={"sz": 12, "color": neutral_border_hex},
         )
-        _set_cell_margins(cell, top=160, bottom=160, start=200, end=200)
+        _set_cell_margins(cell, top=120, bottom=120, start=200, end=200)
         cell.text = ""
         band_para = cell.paragraphs[0]
         band_para.text = " "
-        band_para.paragraph_format.space_after = Pt(6)
+        band_para.paragraph_format.space_after = Pt(4)
         _shade_paragraph(band_para, accent_hex)
         label_para = cell.add_paragraph(label, style="SmallCaps")
         label_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        label_para.paragraph_format.space_before = Pt(0)
+        label_para.paragraph_format.space_after = Pt(2)
         value_text = value if value not in (None, "") else "—"
         value_para = cell.add_paragraph(str(value_text), style="KPI")
         value_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        value_para.paragraph_format.space_before = Pt(0)
+        value_para.paragraph_format.space_after = Pt(4)
 
     scope_note = doc.add_paragraph(
         "Insights reference the complete dataset, extending beyond the radar metrics for context.",
         style="Note",
     )
     scope_note.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    scope_note.paragraph_format.space_before = Pt(6)
+    scope_note.paragraph_format.space_after = Pt(10)
 
-    doc.add_paragraph("")
+    _add_spacer(6)
 
     _add_section_heading("Visual analysis")
 
@@ -1632,6 +1660,8 @@ def build_player_report_docx(
         style="Body",
     )
     analysis_intro.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    analysis_intro.paragraph_format.space_before = Pt(2)
+    analysis_intro.paragraph_format.space_after = Pt(6)
 
     chart_card = doc.add_table(rows=1, cols=1)
     chart_card.autofit = False
@@ -1644,13 +1674,15 @@ def build_player_report_docx(
         right={"sz": 12, "color": neutral_border_hex},
     )
     _apply_cell_shading(chart_cell, "F9FAFB")
-    _set_cell_margins(chart_cell, top=120, bottom=140, start=200, end=200)
+    _set_cell_margins(chart_cell, top=100, bottom=120, start=200, end=200)
     chart_cell.text = ""
     chart_band = chart_cell.add_paragraph(" ")
-    chart_band.paragraph_format.space_after = Pt(6)
+    chart_band.paragraph_format.space_after = Pt(4)
     _shade_paragraph(chart_band, accent_hex)
     chart_title = chart_cell.add_paragraph("Radar & percentile bars", style="SmallCaps")
     chart_title.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    chart_title.paragraph_format.space_before = Pt(0)
+    chart_title.paragraph_format.space_after = Pt(4)
     chart_caption = chart_cell.add_paragraph(
         "Single-player radar alongside percentile bars across the selected metrics.",
         style="Note",
@@ -1675,14 +1707,15 @@ def build_player_report_docx(
         fallback = chart_cell.add_paragraph("Radar visualization unavailable.", style="Note")
         fallback.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    doc.add_paragraph("")
+    _add_spacer(10)
 
     _add_section_heading("Quick insights")
 
     insights_table = doc.add_table(rows=1, cols=2)
     insights_table.autofit = False
-    insights_table.columns[0].width = Inches(3.3)
-    insights_table.columns[1].width = Inches(3.3)
+    col_width_cm = max((usable_width_cm / 2) - 0.2, 6.5)
+    insights_table.columns[0].width = Cm(col_width_cm)
+    insights_table.columns[1].width = Cm(col_width_cm)
 
     standouts_cell, development_cell = insights_table.rows[0].cells
     for insight_cell in (standouts_cell, development_cell):
@@ -1693,7 +1726,7 @@ def build_player_report_docx(
             left={"sz": 12, "color": neutral_border_hex},
             right={"sz": 12, "color": neutral_border_hex},
         )
-        _set_cell_margins(insight_cell, top=160, bottom=140, start=200, end=200)
+        _set_cell_margins(insight_cell, top=110, bottom=110, start=200, end=200)
 
     standouts_title = standouts_cell.paragraphs[0]
     standouts_title.style = doc.styles["H2"]
@@ -1701,7 +1734,7 @@ def build_player_report_docx(
 
     for metric_label, descriptor in standouts:
         paragraph = standouts_cell.add_paragraph(style="Body")
-        paragraph.paragraph_format.space_before = Pt(6)
+        paragraph.paragraph_format.space_before = Pt(4)
         paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
         emoji_run = paragraph.add_run("✅ ")
         emoji_run.bold = False
@@ -1723,7 +1756,7 @@ def build_player_report_docx(
 
     for metric_label, descriptor in development:
         paragraph = development_cell.add_paragraph(style="Body")
-        paragraph.paragraph_format.space_before = Pt(6)
+        paragraph.paragraph_format.space_before = Pt(4)
         paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
         paragraph.add_run("⚠️ ")
         paragraph.add_run(f"{metric_label}: ")
@@ -1738,7 +1771,7 @@ def build_player_report_docx(
         if value_part:
             paragraph.add_run(f" {value_part}")
 
-    doc.add_paragraph("")
+    _add_spacer(10)
 
     confidentiality_block = doc.add_table(rows=1, cols=1)
     confidentiality_block.autofit = False
@@ -1751,7 +1784,7 @@ def build_player_report_docx(
         left={"sz": 12, "color": neutral_border_hex},
         right={"sz": 12, "color": neutral_border_hex},
     )
-    _set_cell_margins(block_cell, top=160, bottom=160, start=200, end=200)
+    _set_cell_margins(block_cell, top=120, bottom=120, start=200, end=200)
     confidentiality_para = block_cell.paragraphs[0]
     confidentiality_para.style = doc.styles["Body"]
     confidentiality_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
