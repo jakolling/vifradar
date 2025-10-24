@@ -1097,13 +1097,13 @@ def build_player_report_docx(
     header_table = header.add_table(rows=1, cols=3, width=header_width)
     header_table.autofit = False
     header_table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    for col, width in zip(header_table.columns, [Inches(1.8), Inches(4.5), Inches(1.8)]):
+    for col, width in zip(header_table.columns, [Inches(2.0), Inches(4.1), Inches(2.0)]):
         col.width = width
 
     photo_cell, headline_cell, logo_cell = header_table.rows[0].cells
     for cell in (photo_cell, headline_cell, logo_cell):
         _apply_cell_shading(cell, accent_color)
-        cell.vertical_alignment = WD_ALIGN_VERTICAL.TOP
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
         if cell.paragraphs:
             cell.paragraphs[0].paragraph_format.space_after = Pt(0)
 
@@ -1119,37 +1119,56 @@ def build_player_report_docx(
             run.font.color.rgb = placeholder_color
 
     photo_paragraph = photo_cell.paragraphs[0]
-    _render_header_image(photo_paragraph, photo_stream, "PLAYER PHOTO", width=1.55, alignment=WD_ALIGN_PARAGRAPH.LEFT)
+    photo_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    _render_header_image(photo_paragraph, photo_stream, "PLAYER PHOTO", width=1.6, alignment=WD_ALIGN_PARAGRAPH.CENTER)
+    photo_caption = photo_cell.add_paragraph("Athlete")
+    photo_caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    if photo_caption.runs:
+        photo_caption.runs[0].font.size = Pt(9)
+        photo_caption.runs[0].font.color.rgb = placeholder_color
 
+    headline_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
     headline_paragraph = headline_cell.paragraphs[0]
-    headline_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    headline_run = headline_paragraph.add_run(f"{player_name} — Performance Report")
+    headline_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    headline_run = headline_paragraph.add_run(player_name)
     headline_run.bold = True
     headline_run.font.size = Pt(20)
     headline_run.font.color.rgb = RGBColor(255, 255, 255)
 
-    subtitle_paragraph = headline_cell.add_paragraph("Radar and percentile summary of selected metrics")
-    subtitle_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    subtitle_paragraph = headline_cell.add_paragraph("Performance radar and percentile overview")
+    subtitle_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
     if subtitle_paragraph.runs:
         subtitle_paragraph.runs[0].font.size = Pt(11)
         subtitle_paragraph.runs[0].font.color.rgb = placeholder_color
 
+    tagline_paragraph = headline_cell.add_paragraph("Executive report")
+    tagline_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    if tagline_paragraph.runs:
+        tagline_paragraph.runs[0].font.size = Pt(9)
+        tagline_paragraph.runs[0].font.color.rgb = placeholder_color
+
+    logo_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
     date_paragraph = logo_cell.paragraphs[0]
-    date_paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    date_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
     date_run = date_paragraph.add_run(datetime.now().strftime("%B %d, %Y"))
     date_run.bold = True
     date_run.font.size = Pt(11)
     date_run.font.color.rgb = placeholder_color
 
     sample_paragraph = logo_cell.add_paragraph(f"Sample size: {df.shape[0]} players")
-    sample_paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    sample_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
     if sample_paragraph.runs:
         sample_paragraph.runs[0].font.size = Pt(9)
         sample_paragraph.runs[0].font.color.rgb = placeholder_color
 
     crest_paragraph = logo_cell.add_paragraph()
     crest_paragraph.paragraph_format.space_before = Pt(4)
-    _render_header_image(crest_paragraph, logo_stream, "CLUB CREST", width=1.35, alignment=WD_ALIGN_PARAGRAPH.RIGHT)
+    _render_header_image(crest_paragraph, logo_stream, "CLUB CREST", width=1.4, alignment=WD_ALIGN_PARAGRAPH.CENTER)
+    crest_caption = logo_cell.add_paragraph("Club")
+    crest_caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    if crest_caption.runs:
+        crest_caption.runs[0].font.size = Pt(9)
+        crest_caption.runs[0].font.color.rgb = placeholder_color
 
     footer = section.footer
     footer.is_linked_to_previous = False
@@ -1168,15 +1187,20 @@ def build_player_report_docx(
 
     doc.add_paragraph("")
 
-    profile_card = doc.add_table(rows=1, cols=1)
-    profile_cell = profile_card.rows[0].cells[0]
-    _apply_cell_shading(profile_cell, neutral_bg)
-    profile_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-    name_paragraph = profile_cell.paragraphs[0]
-    name_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    name_run = name_paragraph.add_run(player_name)
-    name_run.bold = True
-    name_run.font.size = Pt(20)
+    profile_card = doc.add_table(rows=1, cols=2)
+    profile_card.autofit = True
+    snapshot_cell, notes_cell = profile_card.rows[0].cells
+
+    for cell in (snapshot_cell, notes_cell):
+        _apply_cell_shading(cell, neutral_bg)
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.TOP
+        if cell.paragraphs:
+            cell.paragraphs[0].paragraph_format.space_after = Pt(0)
+
+    snapshot_title = snapshot_cell.paragraphs[0].add_run("Player information")
+    snapshot_title.bold = True
+    snapshot_title.font.size = Pt(12)
+    snapshot_cell.add_paragraph("")
 
     def _clean(value):
         if value is None:
@@ -1212,10 +1236,22 @@ def build_player_report_docx(
     info_lines.append("Competition level: {0}".format(_clean(row.get("League")) or "—"))
 
     for line in info_lines:
-        p = profile_cell.add_paragraph(line)
+        p = snapshot_cell.add_paragraph(line)
         p.alignment = WD_ALIGN_PARAGRAPH.LEFT
         if p.runs:
             p.runs[0].font.size = Pt(11)
+
+    notes_title = notes_cell.paragraphs[0].add_run("Editable notes")
+    notes_title.bold = True
+    notes_title.font.size = Pt(12)
+    notes_placeholder = notes_cell.add_paragraph(
+        "Add tactical context, coaching directives, or presentation notes here before exporting to Canva."
+    )
+    notes_placeholder.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    if notes_placeholder.runs:
+        notes_placeholder.runs[0].font.size = Pt(10)
+        notes_placeholder.runs[0].font.color.rgb = RGBColor(90, 95, 105)
+    notes_cell.add_paragraph("")
 
     doc.add_paragraph("")
 
