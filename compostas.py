@@ -1195,14 +1195,6 @@ def build_player_report_docx(
                 }
             )
 
-    percent_table_rows = [
-        (metric, descriptor)
-        for metric, _, descriptor in metric_percentiles
-        if descriptor
-    ]
-    if not percent_table_rows:
-        percent_table_rows = list(PERCENTILE_TABLE_DEFAULT)
-
     def _select_insights(
         pool: list[dict[str, object]],
         predicate,
@@ -1427,7 +1419,6 @@ def build_player_report_docx(
         fld_char_separate = OxmlElement("w:fldChar")
         fld_char_separate.set(qn("w:fldCharType"), "separate")
         run._r.append(fld_char_separate)
-        paragraph.add_run("1")
         fld_char_end = OxmlElement("w:fldChar")
         fld_char_end.set(qn("w:fldCharType"), "end")
         run._r.append(fld_char_end)
@@ -1447,28 +1438,63 @@ def build_player_report_docx(
         p.getparent().remove(p)
 
     usable_width = section.page_width - section.left_margin - section.right_margin
-    crest_width = Inches(0.5)
-    name_width = max(usable_width - crest_width, Inches(4))
+    photo_width = Cm(1.2)
+    crest_width = Cm(1.2)
+    info_width = max(usable_width - photo_width - crest_width, Inches(4))
 
-    header_table = header.add_table(rows=1, cols=2, width=usable_width)
+    header_table = header.add_table(rows=1, cols=3, width=usable_width)
     header_table.autofit = False
     header_table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    header_table.columns[0].width = name_width
-    header_table.columns[1].width = crest_width
+    header_table.columns[0].width = photo_width
+    header_table.columns[1].width = info_width
+    header_table.columns[2].width = crest_width
 
-    doc_name_cell, crest_cell = header_table.rows[0].cells
-    doc_name_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    photo_cell, info_cell, crest_cell = header_table.rows[0].cells
+    photo_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    info_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
     crest_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-    doc_name_para = doc_name_cell.paragraphs[0]
-    doc_name_para.style = doc.styles["SmallCaps"]
-    doc_name_para.text = primary_title
-    doc_name_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    photo_cell.paragraphs[0].clear()
+    photo_frame = photo_cell.add_table(rows=1, cols=1)
+    photo_frame.autofit = False
+    photo_frame.columns[0].width = photo_width
+    photo_placeholder = photo_frame.rows[0].cells[0]
+    _set_cell_border(
+        photo_placeholder,
+        top={"sz": 12, "color": neutral_border_hex},
+        bottom={"sz": 12, "color": neutral_border_hex},
+        left={"sz": 12, "color": neutral_border_hex},
+        right={"sz": 12, "color": neutral_border_hex},
+    )
+    _set_cell_margins(photo_placeholder, top=60, bottom=60, start=60, end=60)
+    photo_paragraph = photo_placeholder.paragraphs[0]
+    photo_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    if photo_stream is not None:
+        photo_stream.seek(0)
+        photo_paragraph.add_run().add_picture(photo_stream, width=photo_width)
+    else:
+        photo_run = photo_paragraph.add_run("PLAYER\nPHOTO")
+        photo_run.font.size = Pt(8)
+        photo_run.font.color.rgb = muted_text
+        photo_run.font.bold = True
+
+    info_cell.text = ""
+    title_para = info_cell.add_paragraph(primary_title, style="SmallCaps")
+    title_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    subtitle_para = info_cell.add_paragraph(subtitle, style="Tag")
+    subtitle_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    name_para = info_cell.add_paragraph(athlete_name, style="TitleHero")
+    name_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    strap_line = info_cell.add_paragraph(
+        f"{player_position} · {player_club}",
+        style="Body",
+    )
+    strap_line.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
     crest_cell.paragraphs[0].clear()
     crest_frame = crest_cell.add_table(rows=1, cols=1)
     crest_frame.autofit = False
-    crest_frame.columns[0].width = Inches(0.5)
+    crest_frame.columns[0].width = crest_width
     crest_placeholder = crest_frame.rows[0].cells[0]
     _set_cell_border(
         crest_placeholder,
@@ -1482,7 +1508,7 @@ def build_player_report_docx(
     crest_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
     if logo_stream is not None:
         logo_stream.seek(0)
-        crest_paragraph.add_run().add_picture(logo_stream, width=Mm(12))
+        crest_paragraph.add_run().add_picture(logo_stream, width=crest_width)
     else:
         crest_run = crest_paragraph.add_run("CLUB\nCREST")
         crest_run.font.size = Pt(8)
@@ -1586,60 +1612,6 @@ def build_player_report_docx(
     doc.add_paragraph("")
     doc.add_page_break()
 
-    hero_table = doc.add_table(rows=1, cols=2)
-    hero_table.autofit = False
-    hero_table.columns[0].width = Inches(3.9)
-    hero_table.columns[1].width = Inches(2.7)
-    hero_left, hero_right = hero_table.rows[0].cells
-
-    for hero_cell in (hero_left, hero_right):
-        _set_cell_border(
-            hero_cell,
-            top={"sz": 12, "color": neutral_border_hex},
-            bottom={"sz": 12, "color": neutral_border_hex},
-            left={"sz": 12, "color": neutral_border_hex},
-            right={"sz": 12, "color": neutral_border_hex},
-        )
-        _set_cell_margins(hero_cell, top=160, bottom=160, start=200, end=200)
-
-    hero_left.text = ""
-    hero_band = hero_left.add_paragraph(" ")
-    hero_band.paragraph_format.space_after = Pt(6)
-    _shade_paragraph(hero_band, accent_hex)
-    hero_name = hero_left.add_paragraph(athlete_name, style="H1")
-    hero_name.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    hero_role = hero_left.add_paragraph(player_position, style="SmallCaps")
-    hero_role.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    hero_club = hero_left.add_paragraph(player_club, style="Body")
-    hero_club.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    hero_comp = hero_left.add_paragraph(f"Competition: {competition_level}", style="Body")
-    hero_comp.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-    hero_right.text = ""
-    _apply_cell_shading(hero_right, "F9FAFB")
-    hero_right_title = hero_right.add_paragraph("Snapshot", style="SmallCaps")
-    hero_right_title.paragraph_format.space_after = Pt(4)
-    hero_stats = [
-        ("Report date", report_date),
-        ("Age", str(player_age)),
-        ("Minutes", f"{minutes}"),
-        ("Sample size", str(sample_size)),
-    ]
-    for label, value in hero_stats:
-        if value is None:
-            value_display = "—"
-        elif isinstance(value, str):
-            value_display = value.strip() or "—"
-        else:
-            value_display = f"{value}"
-        stat_para = hero_right.add_paragraph(style="Body")
-        stat_para.paragraph_format.space_before = Pt(2)
-        label_run = stat_para.add_run(f"{label}: ")
-        label_run.bold = True
-        stat_para.add_run(value_display)
-
-    doc.add_paragraph("")
-
     def _add_section_heading(text: str):
         heading = doc.add_paragraph(text, style="H1")
         heading.alignment = WD_ALIGN_PARAGRAPH.LEFT
@@ -1653,6 +1625,8 @@ def build_player_report_docx(
         ("Age", str(player_age)),
         ("Minutes played", f"{minutes}"),
         ("Competition level", competition_level),
+        ("Report date", report_date),
+        ("Sample size", str(sample_size)),
     ]
 
     info_table_rows = math.ceil(len(info_items) / 2)
@@ -1763,42 +1737,6 @@ def build_player_report_docx(
     except Exception:
         fallback = chart_cell.add_paragraph("Radar visualization unavailable.", style="Note")
         fallback.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-    doc.add_paragraph("")
-
-    percent_table = doc.add_table(rows=len(percent_table_rows) + 1, cols=2)
-    percent_table.autofit = False
-    percent_table.columns[0].width = Inches(3.6)
-    percent_table.columns[1].width = Inches(2.8)
-
-    header_cells = percent_table.rows[0].cells
-    _apply_cell_shading(header_cells[0], neutral_fill)
-    _apply_cell_shading(header_cells[1], neutral_fill)
-    header_cells[0].paragraphs[0].text = "Metric"
-    header_cells[0].paragraphs[0].style = doc.styles["H2"]
-    header_cells[1].paragraphs[0].text = "Percentile / Value"
-    header_cells[1].paragraphs[0].style = doc.styles["H2"]
-
-    for idx, (metric_label, descriptor) in enumerate(percent_table_rows, start=1):
-        cells = percent_table.rows[idx].cells
-        if idx % 2 == 0:
-            _apply_cell_shading(cells[0], zebra_fill)
-            _apply_cell_shading(cells[1], zebra_fill)
-        cells[0].paragraphs[0].text = metric_label
-        cells[0].paragraphs[0].style = doc.styles["Body"]
-        descriptor_para = cells[1].paragraphs[0]
-        descriptor_para.style = doc.styles["Body"]
-        descriptor_para.text = ""
-        percent_part = descriptor
-        value_part = ""
-        if "(" in descriptor:
-            percent_part, rest = descriptor.split("(", 1)
-            percent_part = percent_part.strip()
-            value_part = f"({rest}".strip()
-        run_pct = descriptor_para.add_run(percent_part.strip())
-        run_pct.bold = True
-        if value_part:
-            descriptor_para.add_run(f" {value_part}")
 
     doc.add_paragraph("")
 
