@@ -1311,44 +1311,6 @@ def build_player_report_docx(
     _render_list(strengths_cell, strengths)
     _render_list(dev_cell, devs)
 
-    doc.add_paragraph("")
-
-    pct_header = doc.add_paragraph("Detailed percentile table")
-    pct_header.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    if pct_header.runs:
-        pct_header.runs[0].bold = True
-
-    pct_table = doc.add_table(rows=len(metrics) + 1, cols=3)
-    try:
-        pct_table.style = "Light List Accent 1"
-    except Exception:
-        pass
-
-    header_cells = pct_table.rows[0].cells
-    header_titles = ["Metric", "Percentile", "Value"]
-    for cell, text in zip(header_cells, header_titles):
-        cell.text = text
-        _apply_cell_shading(cell, accent_color)
-        paragraph = cell.paragraphs[0]
-        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        for run in paragraph.runs:
-            run.bold = True
-            run.font.color.rgb = RGBColor(255, 255, 255)
-
-    for metric in metrics:
-        info = _metric_percentile_info(df, metric, player_name)
-        pct_value = info.get("percentile")
-        pct_text = f"{pct_value:.1f}%" if pd.notna(pct_value) else "—"
-        val_text = _format_metric_value(metric, info.get("value"))
-
-        row_cells = pct_table.add_row().cells
-        row_cells[0].text = metric
-        row_cells[1].text = pct_text
-        row_cells[2].text = val_text
-
-        row_cells[1].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-        row_cells[2].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
-
     output = io.BytesIO()
     doc.save(output)
     output.seek(0)
