@@ -34,26 +34,44 @@ PLAYER_POSITION_DEFAULT = "LAMF, LW"
 PLAYER_AGE_DEFAULT = 21
 PLAYER_MINUTES_DEFAULT = 772
 COMPETITION_LEVEL_DEFAULT = "—"
-
-PERCENTILE_TABLE_DEFAULT = [
-    ("Progressive runs per 90", "98th pct (5.13)"),
-    ("Progression", "95th pct (48.6)"),
-    ("Offensive Intensity", "94th pct (6.22)"),
-    ("Work Rate Offensive", "93rd pct (1.40)"),
-    ("Successful attacking actions per 90", "92nd pct (4.90)"),
-    ("Passing Quality", "29th pct (49.1)"),
-]
+REPORT_ID = "VIF-PR-2025-10-24"
+REPORT_VERSION = "v1.0"
+METHODOLOGY_COHORT = 435
+METHODOLOGY_WINDOW = "Rolling 18-month window (Aug 2023 – Feb 2025)"
+METHODOLOGY_REVERSALS = "Negative-impact metrics are inverted before percentile ranking."
 
 STANDOUTS_DEFAULT = [
-    ("Progressive runs per 90", "98th pct (5.13)"),
-    ("Progression", "95th pct (48.6)"),
-    ("Offensive Intensity", "94th pct (6.22)"),
-    ("Work Rate Offensive", "93rd pct (1.40)"),
-    ("Successful attacking actions per 90", "92nd pct (4.90)"),
+    {
+        "metric": "Progressive runs per 90",
+        "descriptor": "98th pct (5.13)",
+        "pct": 98.0,
+        "value": 5.13,
+        "median": None,
+    },
+    {
+        "metric": "Progression",
+        "descriptor": "95th pct (48.6)",
+        "pct": 95.0,
+        "value": 48.6,
+        "median": None,
+    },
+    {
+        "metric": "Offensive Intensity",
+        "descriptor": "94th pct (6.22)",
+        "pct": 94.0,
+        "value": 6.22,
+        "median": None,
+    },
 ]
 
 DEVELOPMENT_AREAS_DEFAULT = [
-    ("Passing Quality", "29th pct (49.1)"),
+    {
+        "metric": "Passing Quality",
+        "descriptor": "29th pct (49.1)",
+        "pct": 29.0,
+        "value": 49.1,
+        "median": None,
+    },
 ]
 
 def _player_age(row):
@@ -995,8 +1013,38 @@ def make_radar_bars_png(
     ax_radar.set_title(title, fontsize=20, weight="bold", pad=18)
 
     scale_max = 100.0 if bar_mode == "percentile" else 1.0
-    xticks = [0, 25, 50, 75, 100] if bar_mode == "percentile" else [0, 0.5, 1]
-    xticklabels = ["0%", "25%", "50%", "75%", "100%"] if bar_mode == "percentile" else ["0%", "50%", "100%"]
+    if bar_mode == "percentile":
+        xticks = [0, 10, 50, 90, 100]
+        xticklabels = [f"{tick:.0f}%" for tick in xticks]
+    else:
+        xticks = [0, 0.5, 1]
+        xticklabels = ["0%", "50%", "100%"]
+
+    if bar_mode == "percentile":
+        max_radius = radar.center_circle_radius + radar.ring_width * radar.num_rings
+        span = max_radius - radar.center_circle_radius
+        for anchor in (10, 50, 90):
+            radius = radar.center_circle_radius + (anchor / 100.0) * span
+            anchor_circle = plt.Circle(
+                (0, 0),
+                radius,
+                transform=ax_radar.transData,
+                fill=False,
+                linestyle="--",
+                linewidth=0.6,
+                color="#94a3b8",
+                alpha=0.45,
+            )
+            ax_radar.add_patch(anchor_circle)
+            ax_radar.text(
+                radius + 0.1,
+                0,
+                f"{anchor}",
+                fontsize=8,
+                color="#475569",
+                va="center",
+                ha="left",
+            )
 
     # Bar blocks (player A then optional player B)
     def _draw_bar_block(start_row: int, player_name: str):
@@ -1030,6 +1078,18 @@ def make_radar_bars_png(
             ax.set_yticks([])
             ax.set_xticks(xticks)
             ax.set_xticklabels(xticklabels, fontsize=7)
+            if bar_mode == "percentile":
+                for anchor in (10, 50, 90):
+                    ax.axvline(anchor, color="#cbd5f5", linestyle="--", linewidth=0.8, alpha=0.6, zorder=0)
+                ax.scatter(
+                    [10, 50, 90],
+                    [0, 0, 0],
+                    color="#2563EB",
+                    s=10,
+                    marker="|",
+                    linewidths=0.8,
+                    zorder=3,
+                )
             ax.set_title(label, fontsize=9, pad=2, loc="left")
             for spine in ["top", "right", "left"]:
                 ax.spines[spine].set_visible(False)
@@ -1092,6 +1152,19 @@ def build_player_report_docx(
     photo_stream = _to_stream(player_photo)
     logo_stream = _to_stream(team_logo)
 
+    def _clone_stream(stream: io.BytesIO | None) -> io.BytesIO | None:
+        if stream is None:
+            return None
+        try:
+            stream.seek(0)
+            data = stream.read()
+            stream.seek(0)
+        except Exception:
+            return None
+        clone = io.BytesIO(data)
+        clone.seek(0)
+        return clone
+
     accent_hex = "2563EB"
     accent_color = f"#{accent_hex}"
     neutral_border_hex = "D1D5DB"
@@ -1140,21 +1213,31 @@ def build_player_report_docx(
             descriptor = f"{descriptor} ({formatted})"
         return descriptor
 
-    metric_percentiles: list[tuple[str, float, str]] = []
     insight_pool: list[dict[str, object]] = []
+
+    def _metric_median(metric_name: str) -> float | None:
+        if metric_name not in df.columns:
+            return None
+        series = pd.to_numeric(df[metric_name], errors="coerce")
+        series = series.dropna()
+        if series.empty:
+            return None
+        return float(series.median())
+
     for metric in metrics:
         info = _metric_percentile_info(df, metric, player_name)
         pct_value = info.get("percentile")
         if pd.notna(pct_value):
             pct_float = float(pct_value)
             descriptor = _descriptor_for_metric(metric, pct_float, info.get("value"))
-            metric_percentiles.append((metric, pct_float, descriptor))
             insight_pool.append(
                 {
                     "metric": metric,
                     "pct": pct_float,
                     "descriptor": descriptor,
                     "source": "radar",
+                    "value": info.get("value"),
+                    "median": _metric_median(metric),
                 }
             )
 
@@ -1180,18 +1263,21 @@ def build_player_report_docx(
                     "pct": pct_float,
                     "descriptor": descriptor,
                     "source": "extra",
+                    "value": info.get("value"),
+                    "median": _metric_median(metric),
                 }
             )
 
-    if not metric_percentiles:
-        metric_percentiles = [(label, 0.0, text) for label, text in PERCENTILE_TABLE_DEFAULT]
-        for label, _, descriptor in metric_percentiles:
+    if not insight_pool:
+        for item in STANDOUTS_DEFAULT + DEVELOPMENT_AREAS_DEFAULT:
             insight_pool.append(
                 {
-                    "metric": label,
-                    "pct": None,
-                    "descriptor": descriptor,
+                    "metric": item.get("metric"),
+                    "pct": item.get("pct"),
+                    "descriptor": item.get("descriptor"),
                     "source": "default",
+                    "value": item.get("value"),
+                    "median": item.get("median"),
                 }
             )
 
@@ -1201,7 +1287,7 @@ def build_player_report_docx(
         *,
         limit: int,
         reverse: bool,
-    ) -> list[tuple[str, str]]:
+    ) -> list[dict[str, object]]:
         filtered: list[dict[str, object]] = [
             item
             for item in pool
@@ -1233,10 +1319,7 @@ def build_player_report_docx(
             else:
                 unique.append(replacement)
 
-        return [
-            (str(item.get("metric")), str(item.get("descriptor")))
-            for item in unique[:limit]
-        ]
+        return unique[:limit]
 
     standouts = _select_insights(
         insight_pool,
@@ -1459,6 +1542,41 @@ def build_player_report_docx(
         p.getparent().remove(p)
 
     usable_width = section.page_width - section.left_margin - section.right_margin
+    usable_width_cm = (
+        section.page_width.cm
+        - section.left_margin.cm
+        - section.right_margin.cm
+    )
+
+    header_table = header.add_table(rows=1, cols=2, width=usable_width)
+    header_table.autofit = False
+    header_left, header_right = header_table.rows[0].cells
+    header_table.columns[1].width = Cm(1.4)
+    header_table.columns[0].width = Cm(max(usable_width_cm - 1.4, 6.0))
+    _set_cell_margins(header_left, top=40, bottom=40, start=80, end=80)
+    _set_cell_margins(header_right, top=40, bottom=40, start=80, end=80)
+
+    header_left.text = ""
+    header_title = header_left.paragraphs[0]
+    header_title.style = doc.styles["SmallCaps"]
+    header_title.paragraph_format.space_after = Pt(0)
+    header_title.text = primary_title
+    header_subtitle = header_left.add_paragraph(subtitle, style="Tag")
+    header_subtitle.paragraph_format.space_before = Pt(0)
+    header_subtitle.paragraph_format.space_after = Pt(0)
+
+    header_logo_para = header_right.paragraphs[0]
+    header_logo_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    header_logo_para.paragraph_format.space_after = Pt(0)
+    small_logo_stream = _clone_stream(logo_stream)
+    if small_logo_stream is not None:
+        small_logo_stream.seek(0)
+        header_logo_para.add_run().add_picture(small_logo_stream, width=Cm(1.2))
+    else:
+        logo_placeholder = header_logo_para.add_run("CLUB\nCREST")
+        logo_placeholder.font.size = Pt(7)
+        logo_placeholder.font.bold = True
+        logo_placeholder.font.color.rgb = muted_text
 
     footer = section.footer
     footer.is_linked_to_previous = False
@@ -1475,9 +1593,8 @@ def build_player_report_docx(
     footer_left, footer_center, footer_right = footer_table.rows[0].cells
     footer_left_paragraph = footer_left.paragraphs[0]
     footer_left_paragraph.style = doc.styles["Note"]
-    footer_left_paragraph.text = (
-        "Confidential – Authorized recipients only."
-    )
+    footer_left_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    footer_left_paragraph.text = f"Report ID: {REPORT_ID}"
 
     footer_center_paragraph = footer_center.paragraphs[0]
     footer_center_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -1488,20 +1605,30 @@ def build_player_report_docx(
     footer_center_paragraph.add_run(" of ")
     _add_page_field(footer_center_paragraph, "NUMPAGES \\* Arabic")
 
-    footer_right.paragraphs[0].text = ""
+    footer_right_paragraph = footer_right.paragraphs[0]
+    footer_right_paragraph.style = doc.styles["Note"]
+    footer_right_paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    footer_right_paragraph.text = f"Version {REPORT_VERSION}"
 
-    usable_width_cm = (
-        section.page_width.cm
-        - section.left_margin.cm
-        - section.right_margin.cm
-    )
+    cover_table = doc.add_table(rows=1, cols=2)
+    cover_table.autofit = False
+    cover_table.columns[0].width = Cm(0.6)
+    cover_table.columns[1].width = Cm(max(usable_width_cm - 0.6, 12.0))
+    cover_row = cover_table.rows[0]
+    accent_cell, hero_host_cell = cover_row.cells
+    _apply_cell_shading(accent_cell, accent_hex)
+    _set_cell_margins(accent_cell, top=0, bottom=0, start=0, end=0)
+    accent_cell.text = ""
 
-    hero_table = doc.add_table(rows=1, cols=3)
+    hero_host_cell.text = ""
+    _set_cell_margins(hero_host_cell, top=0, bottom=0, start=0, end=0)
+    hero_table = hero_host_cell.add_table(rows=1, cols=3)
     hero_table.autofit = False
     hero_table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    hero_left_cm = max(3.8, usable_width_cm * 0.28)
+    hero_width_cm = max(usable_width_cm - 0.6, 12.0)
+    hero_left_cm = max(3.5, hero_width_cm * 0.26)
     hero_right_cm = hero_left_cm
-    hero_center_cm = max(usable_width_cm - hero_left_cm - hero_right_cm, 6.0)
+    hero_center_cm = max(hero_width_cm - hero_left_cm - hero_right_cm, 6.2)
     hero_table.columns[0].width = Cm(hero_left_cm)
     hero_table.columns[1].width = Cm(hero_center_cm)
     hero_table.columns[2].width = Cm(hero_right_cm)
@@ -1509,7 +1636,7 @@ def build_player_report_docx(
     hero_row = hero_table.rows[0]
     for cell in hero_row.cells:
         _apply_cell_shading(cell, "F9FAFB")
-        _set_cell_margins(cell, top=80, bottom=90, start=180, end=180)
+        _set_cell_margins(cell, top=60, bottom=70, start=160, end=160)
         cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
     photo_cell, info_cell, crest_cell = hero_row.cells
@@ -1527,7 +1654,7 @@ def build_player_report_docx(
     photo_para.paragraph_format.space_after = Pt(0)
     if photo_stream is not None:
         photo_stream.seek(0)
-        photo_para.add_run().add_picture(photo_stream, width=Cm(hero_left_cm - 1.0))
+        photo_para.add_run().add_picture(photo_stream, width=Cm(hero_left_cm - 1.2))
     else:
         photo_run = photo_para.add_run("PLAYER\nPHOTO")
         photo_run.font.size = Pt(9)
@@ -1535,22 +1662,25 @@ def build_player_report_docx(
         photo_run.font.color.rgb = muted_text
 
     info_cell.text = ""
-    info_band = info_cell.paragraphs[0]
-    info_band.text = " "
-    info_band.paragraph_format.space_before = Pt(0)
-    info_band.paragraph_format.space_after = Pt(4)
-    _shade_paragraph(info_band, accent_hex)
-    title_para = info_cell.add_paragraph(primary_title, style="SmallCaps")
+    title_para = info_cell.paragraphs[0]
+    title_para.style = doc.styles["TitleHero"]
     title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    title_para.paragraph_format.space_before = Pt(0)
-    title_para.paragraph_format.space_after = Pt(4)
-    subtitle_para = info_cell.add_paragraph(subtitle, style="Tag")
+    title_para.text = primary_title
+    title_para.paragraph_format.space_after = Pt(6)
+
+    subtitle_para = info_cell.add_paragraph(subtitle, style="SmallCaps")
     subtitle_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     subtitle_para.paragraph_format.space_before = Pt(0)
-    subtitle_para.paragraph_format.space_after = Pt(2)
-    name_para = info_cell.add_paragraph(athlete_name, style="TitleHero")
+    subtitle_para.paragraph_format.space_after = Pt(4)
+
+    divider_para = info_cell.add_paragraph(" ")
+    divider_para.paragraph_format.space_before = Pt(0)
+    divider_para.paragraph_format.space_after = Pt(6)
+    _add_bottom_rule(divider_para)
+
+    name_para = info_cell.add_paragraph(athlete_name, style="H1")
     name_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    name_para.paragraph_format.space_before = Pt(2)
+    name_para.paragraph_format.space_before = Pt(0)
     name_para.paragraph_format.space_after = Pt(6)
 
     strap_text = " · ".join(
@@ -1563,13 +1693,12 @@ def build_player_report_docx(
             if value
         ]
     )
-    try:
-        strap_line = info_cell.add_paragraph(style="Body")
-    except KeyError:
-        strap_line = info_cell.add_paragraph()
+    strap_line = info_cell.add_paragraph(style="Body")
+    strap_line.alignment = WD_ALIGN_PARAGRAPH.CENTER
     if strap_text:
         strap_line.add_run(strap_text)
-    strap_line.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    strap_line.paragraph_format.space_before = Pt(0)
+    strap_line.paragraph_format.space_after = Pt(2)
 
     _set_cell_border(
         crest_cell,
@@ -1582,9 +1711,10 @@ def build_player_report_docx(
     crest_para = crest_cell.paragraphs[0]
     crest_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     crest_para.paragraph_format.space_after = Pt(0)
-    if logo_stream is not None:
-        logo_stream.seek(0)
-        crest_para.add_run().add_picture(logo_stream, width=Cm(hero_right_cm - 1.0))
+    large_logo_stream = _clone_stream(logo_stream)
+    if large_logo_stream is not None:
+        large_logo_stream.seek(0)
+        crest_para.add_run().add_picture(large_logo_stream, width=Cm(hero_right_cm - 1.2))
     else:
         crest_run = crest_para.add_run("CLUB\nCREST")
         crest_run.font.size = Pt(9)
@@ -1613,8 +1743,9 @@ def build_player_report_docx(
     info_rows = math.ceil(len(info_items) / 2)
     info_table = doc.add_table(rows=info_rows, cols=2)
     info_table.autofit = False
+    column_width = Cm(max((usable_width_cm - 0.4) / 2, 6.0))
     for column in info_table.columns:
-        column.width = Cm(usable_width_cm / 2)
+        column.width = column_width
 
     for index, (label, value) in enumerate(info_items):
         row_idx = index // 2
@@ -1622,12 +1753,12 @@ def build_player_report_docx(
         cell = info_table.rows[row_idx].cells[col_idx]
         _set_cell_border(
             cell,
-            top={"sz": 16, "color": accent_hex},
+            top={"sz": 14, "color": accent_hex},
             bottom={"sz": 10, "color": neutral_border_hex},
             left={"sz": 10, "color": neutral_border_hex},
             right={"sz": 10, "color": neutral_border_hex},
         )
-        _set_cell_margins(cell, top=90, bottom=90, start=180, end=180)
+        _set_cell_margins(cell, top=70, bottom=70, start=160, end=160)
         cell.text = ""
         band_para = cell.paragraphs[0]
         band_para.text = ""
@@ -1648,6 +1779,86 @@ def build_player_report_docx(
     scope_note.alignment = WD_ALIGN_PARAGRAPH.LEFT
     scope_note.paragraph_format.space_before = Pt(4)
     scope_note.paragraph_format.space_after = Pt(8)
+
+    _add_section_heading("Methodology")
+    methodology_card = doc.add_table(rows=1, cols=1)
+    methodology_card.autofit = False
+    methodology_cell = methodology_card.rows[0].cells[0]
+    _apply_cell_shading(methodology_cell, "F9FAFB")
+    _set_cell_border(
+        methodology_cell,
+        top={"sz": 12, "color": neutral_border_hex},
+        bottom={"sz": 12, "color": neutral_border_hex},
+        left={"sz": 12, "color": neutral_border_hex},
+        right={"sz": 12, "color": neutral_border_hex},
+    )
+    _set_cell_margins(methodology_cell, top=80, bottom=80, start=200, end=200)
+    methodology_cell.text = ""
+    methodology_title = methodology_cell.paragraphs[0]
+    methodology_title.style = doc.styles["SmallCaps"]
+    methodology_title.text = "Cohort methodology"
+    methodology_title.paragraph_format.space_after = Pt(4)
+    methodology_points = [
+        f"• Cohort: {METHODOLOGY_COHORT} players across the latest scouting pool.",
+        f"• Observation window: {METHODOLOGY_WINDOW}.",
+        f"• Metric treatment: {METHODOLOGY_REVERSALS}",
+    ]
+    for point in methodology_points:
+        line = methodology_cell.add_paragraph(point, style="Body")
+        line.paragraph_format.space_before = Pt(2)
+        line.paragraph_format.space_after = Pt(2)
+
+    _add_spacer(10)
+
+    summary_items: list[dict[str, object]] = list(standouts[:3])
+    if len(summary_items) < 3:
+        summary_items.extend(development[: 3 - len(summary_items)])
+
+    doc.add_page_break()
+
+    _add_section_heading("Executive summary")
+    summary_intro = doc.add_paragraph(
+        f"Headline signals benchmarked against the full cohort of {sample_size} players.",
+        style="Body",
+    )
+    summary_intro.paragraph_format.space_after = Pt(6)
+
+    def _insight_context(metric_name: str, median_val) -> str:
+        if median_val is None or (isinstance(median_val, float) and not math.isfinite(median_val)):
+            return ""
+        formatted = _format_metric_value(metric_name, median_val)
+        if not formatted or formatted == "—":
+            try:
+                formatted = f"{float(median_val):.2f}"
+            except Exception:
+                return ""
+        return formatted
+
+    for item in summary_items:
+        metric_label = str(item.get("metric", ""))
+        descriptor = str(item.get("descriptor", ""))
+        bullet = doc.add_paragraph(style="Body")
+        bullet.paragraph_format.space_before = Pt(2)
+        bullet.paragraph_format.space_after = Pt(4)
+        bullet_run = bullet.add_run("• ")
+        bullet_run.bold = True
+        label_run = bullet.add_run(f"{metric_label}: ")
+        label_run.bold = True
+        percent_part = descriptor
+        value_part = ""
+        if "(" in descriptor:
+            percent_part, rest = descriptor.split("(", 1)
+            percent_part = percent_part.strip()
+            value_part = f"({rest}".strip()
+        pct_run = bullet.add_run(percent_part.strip())
+        pct_run.bold = True
+        if value_part:
+            bullet.add_run(f" {value_part}")
+        context_text = _insight_context(metric_label, item.get("median"))
+        if context_text:
+            bullet.add_run(f" — dataset median {context_text}")
+
+    _add_spacer(6)
 
     doc.add_page_break()
 
@@ -1730,12 +1941,13 @@ def build_player_report_docx(
     standouts_title.style = doc.styles["H2"]
     standouts_title.text = "Standouts (≥ 70th percentile)"
 
-    for metric_label, descriptor in standouts:
+    for item in standouts:
+        metric_label = str(item.get("metric", ""))
+        descriptor = str(item.get("descriptor", ""))
         paragraph = standouts_cell.add_paragraph(style="Body")
         paragraph.paragraph_format.space_before = Pt(3)
         paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
-        emoji_run = paragraph.add_run("✅ ")
-        emoji_run.bold = False
+        paragraph.add_run("✅ ")
         paragraph.add_run(f"{metric_label}: ")
         percent_part = descriptor
         value_part = ""
@@ -1747,12 +1959,17 @@ def build_player_report_docx(
         pct_run.bold = True
         if value_part:
             paragraph.add_run(f" {value_part}")
+        median_text = _insight_context(metric_label, item.get("median"))
+        if median_text:
+            paragraph.add_run(f" — vs dataset median {median_text}")
 
     development_title = development_cell.paragraphs[0]
     development_title.style = doc.styles["H2"]
     development_title.text = "Development areas (≤ 40th percentile)"
 
-    for metric_label, descriptor in development:
+    for item in development:
+        metric_label = str(item.get("metric", ""))
+        descriptor = str(item.get("descriptor", ""))
         paragraph = development_cell.add_paragraph(style="Body")
         paragraph.paragraph_format.space_before = Pt(3)
         paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
@@ -1768,6 +1985,9 @@ def build_player_report_docx(
         pct_run.bold = True
         if value_part:
             paragraph.add_run(f" {value_part}")
+        median_text = _insight_context(metric_label, item.get("median"))
+        if median_text:
+            paragraph.add_run(f" — vs dataset median {median_text}")
 
     _add_spacer(6)
 
