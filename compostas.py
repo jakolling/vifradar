@@ -14,7 +14,7 @@ from docx import Document
 from docx.enum.section import WD_ORIENTATION
 from docx.enum.table import WD_ALIGN_VERTICAL
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Inches, Pt, RGBColor
+from docx.shared import Inches, Pt, RGBColor, Mm
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
@@ -926,8 +926,15 @@ def make_radar_bars_png(
     bar_blocks = 1 + (1 if player_b else 0)
     total_bar_rows = rows_per_player * bar_blocks
 
-    fig = plt.figure(figsize=(11, 8 + total_bar_rows * 0.9))
-    gs = GridSpec(nrows=2 + total_bar_rows, ncols=3, figure=fig)
+    base_height = 10.2
+    fig = plt.figure(figsize=(8.3, base_height + total_bar_rows * 0.45))
+    height_ratios = [3.6, 3.2] + [0.55] * total_bar_rows if total_bar_rows else [3.6, 3.2]
+    gs = GridSpec(
+        nrows=2 + total_bar_rows,
+        ncols=3,
+        figure=fig,
+        height_ratios=height_ratios,
+    )
 
     # Radar spans first 2 rows
     ax_radar = fig.add_subplot(gs[0:2, :])
@@ -991,7 +998,7 @@ def make_radar_bars_png(
         _draw_bar_block(start_row=rows_per_player, player_name=player_b)
 
     buf = io.BytesIO()
-    fig.tight_layout()
+    fig.tight_layout(pad=1.0)
     fig.savefig(buf, format="png", dpi=220, bbox_inches="tight")
     plt.close(fig)
     buf.seek(0)
@@ -1059,9 +1066,10 @@ def build_player_report_docx(
             heading.font.name = "Calibri"
 
     section = doc.sections[-1]
-    section.orientation = WD_ORIENTATION.LANDSCAPE
-    section.page_width, section.page_height = section.page_height, section.page_width
-    margin = Inches(0.5)
+    section.orientation = WD_ORIENTATION.PORTRAIT
+    section.page_width = Mm(210)
+    section.page_height = Mm(297)
+    margin = Inches(0.6)
     section.left_margin = section.right_margin = margin
     section.top_margin = section.bottom_margin = margin
 
@@ -1075,15 +1083,29 @@ def build_player_report_docx(
         shd.set(qn("w:color"), "auto")
         shd.set(qn("w:fill"), fill)
 
-    banner = doc.add_table(rows=1, cols=2)
+    banner = doc.add_table(rows=1, cols=3)
     banner.autofit = False
-    banner.columns[0].width = Inches(8.0)
-    banner.columns[1].width = Inches(3.0)
+    for col, width in zip(banner.columns, [Inches(1.7), Inches(4.9), Inches(1.7)]):
+        col.width = width
     for cell in banner.rows[0].cells:
         _apply_cell_shading(cell, accent_color)
         cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-    headline_cell, meta_cell = banner.rows[0].cells
+    photo_cell, headline_cell, logo_cell = banner.rows[0].cells
+
+    def _header_image(cell, stream: io.BytesIO | None, placeholder: str, width: float):
+        paragraph = cell.paragraphs[0]
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        if stream is not None:
+            stream.seek(0)
+            paragraph.add_run().add_picture(stream, width=Inches(width))
+        else:
+            run = paragraph.add_run(placeholder)
+            run.bold = True
+            run.font.size = Pt(9)
+            run.font.color.rgb = RGBColor(226, 232, 240)
+
+    _header_image(photo_cell, photo_stream, "Foto do atleta", width=1.5)
 
     headline_paragraph = headline_cell.paragraphs[0]
     headline_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
@@ -1098,49 +1120,28 @@ def build_player_report_docx(
         subtitle_paragraph.runs[0].font.size = Pt(11)
         subtitle_paragraph.runs[0].font.color.rgb = RGBColor(226, 232, 240)
 
-    meta_cell.text = ""
-    meta_paragraph = meta_cell.paragraphs[0]
-    meta_paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    meta_run = meta_paragraph.add_run(datetime.now().strftime("%d/%m/%Y"))
-    meta_run.bold = True
-    meta_run.font.size = Pt(12)
-    meta_run.font.color.rgb = RGBColor(226, 232, 240)
+    _header_image(logo_cell, logo_stream, "Escudo do time", width=1.3)
 
-    meta_paragraph = meta_cell.add_paragraph("Base de comparação: {total}".format(total=df.shape[0]))
-    meta_paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    if meta_paragraph.runs:
-        meta_paragraph.runs[0].font.size = Pt(10)
-        meta_paragraph.runs[0].font.color.rgb = RGBColor(226, 232, 240)
+    stamp_paragraph = logo_cell.add_paragraph(datetime.now().strftime("%d/%m/%Y"))
+    stamp_paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    if stamp_paragraph.runs:
+        stamp_paragraph.runs[0].bold = True
+        stamp_paragraph.runs[0].font.size = Pt(11)
+        stamp_paragraph.runs[0].font.color.rgb = RGBColor(226, 232, 240)
+
+    base_paragraph = logo_cell.add_paragraph("Base de comparação: {total}".format(total=df.shape[0]))
+    base_paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    if base_paragraph.runs:
+        base_paragraph.runs[0].font.size = Pt(9)
+        base_paragraph.runs[0].font.color.rgb = RGBColor(226, 232, 240)
 
     doc.add_paragraph("")
 
-    table = doc.add_table(rows=1, cols=3)
-    table.autofit = False
-    for col, width in zip(table.columns, [Inches(2.0), Inches(7.0), Inches(2.0)]):
-        col.width = width
-
-    for cell in table.rows[0].cells:
-        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-
-    def _image_or_placeholder(cell, stream: io.BytesIO | None, placeholder: str, width: float):
-        paragraph = cell.paragraphs[0]
-        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        if stream is not None:
-            stream.seek(0)
-            paragraph.add_run().add_picture(stream, width=Inches(width))
-        else:
-            _apply_cell_shading(cell, neutral_bg)
-            run = paragraph.add_run(placeholder)
-            run.bold = True
-            run.font.size = Pt(10)
-            run.font.color.rgb = RGBColor(80, 88, 99)
-
-    _image_or_placeholder(table.cell(0, 0), photo_stream, "Foto do atleta", width=1.9)
-    _image_or_placeholder(table.cell(0, 2), logo_stream, "Escudo do time", width=1.6)
-
-    middle_cell = table.cell(0, 1)
-    middle_cell.text = ""
-    name_paragraph = middle_cell.paragraphs[0]
+    profile_card = doc.add_table(rows=1, cols=1)
+    profile_cell = profile_card.rows[0].cells[0]
+    _apply_cell_shading(profile_cell, neutral_bg)
+    profile_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    name_paragraph = profile_cell.paragraphs[0]
     name_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
     name_run = name_paragraph.add_run(player_name)
     name_run.bold = True
@@ -1180,7 +1181,7 @@ def build_player_report_docx(
     info_lines.append("Nível competitivo: {0}".format(_clean(row.get("League")) or "—"))
 
     for line in info_lines:
-        p = middle_cell.add_paragraph(line)
+        p = profile_cell.add_paragraph(line)
         p.alignment = WD_ALIGN_PARAGRAPH.LEFT
         if p.runs:
             p.runs[0].font.size = Pt(11)
@@ -1209,7 +1210,7 @@ def build_player_report_docx(
         bar_mode="percentile",
     )
     pic_run = radar_cell.paragraphs[0].add_run()
-    pic_run.add_picture(radar_png, width=Inches(8.8))
+    pic_run.add_picture(radar_png, width=Inches(6.9))
 
     note = doc.add_paragraph(
         "Percentis calculados sobre todo o dataset carregado (métricas negativas invertidas automaticamente)."
