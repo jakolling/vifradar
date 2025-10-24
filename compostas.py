@@ -12,14 +12,49 @@ from matplotlib.ticker import FuncFormatter, MaxNLocator
 from mplsoccer import Radar
 from docx import Document
 from docx.enum.section import WD_ORIENTATION
+from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Inches, Pt, RGBColor, Mm
+from docx.shared import Inches, Pt, RGBColor, Mm, Cm
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
 
 from datetime import datetime, date
+
+
+OUTPUT_FILE = "nassim_ait_mouhou_executive_report.docx"
+REPORT_TITLE = "Performance radar and percentile overview"
+REPORT_SUBTITLE = "Executive report"
+PLAYER_NAME_DEFAULT = "Nassim Ait Mouhou"
+REPORT_DATE_DEFAULT = "October 24, 2025"
+SAMPLE_SIZE_DEFAULT = 486
+PLAYER_CLUB_DEFAULT = "VVV Venlo"
+PLAYER_POSITION_DEFAULT = "LAMF, LW"
+PLAYER_AGE_DEFAULT = 21
+PLAYER_MINUTES_DEFAULT = 772
+COMPETITION_LEVEL_DEFAULT = "—"
+
+PERCENTILE_TABLE_DEFAULT = [
+    ("Progressive runs per 90", "98th pct (5.13)"),
+    ("Progression", "95th pct (48.6)"),
+    ("Offensive Intensity", "94th pct (6.22)"),
+    ("Work Rate Offensive", "93rd pct (1.40)"),
+    ("Successful attacking actions per 90", "92nd pct (4.90)"),
+    ("Passing Quality", "29th pct (49.1)"),
+]
+
+STANDOUTS_DEFAULT = [
+    ("Progressive runs per 90", "98th pct (5.13)"),
+    ("Progression", "95th pct (48.6)"),
+    ("Offensive Intensity", "94th pct (6.22)"),
+    ("Work Rate Offensive", "93rd pct (1.40)"),
+    ("Successful attacking actions per 90", "92nd pct (4.90)"),
+]
+
+DEVELOPMENT_AREAS_DEFAULT = [
+    ("Passing Quality", "29th pct (49.1)"),
+]
 
 def _player_age(row):
     # Try common age fields
@@ -1005,6 +1040,7 @@ def make_radar_bars_png(
     return buf
 
 
+
 def build_player_report_docx(
     df: pd.DataFrame,
     player_name: str,
@@ -1013,6 +1049,10 @@ def build_player_report_docx(
     color_b: str = "#E76F51",
     player_photo: bytes | io.BytesIO | None = None,
     team_logo: bytes | io.BytesIO | None = None,
+    report_title: str | None = None,
+    report_subtitle: str | None = None,
+    report_date: str | None = None,
+    sample_size: int | None = None,
 ) -> io.BytesIO:
     if "Player" not in df.columns:
         raise ValueError("DataFrame must contain the 'Player' column.")
@@ -1046,34 +1086,169 @@ def build_player_report_docx(
     photo_stream = _to_stream(player_photo)
     logo_stream = _to_stream(team_logo)
 
-    accent_color = "1F3C88"
-    neutral_bg = "F2F4F8"
+    accent_hex = "2563EB"
+    neutral_border_hex = "D1D5DB"
+    neutral_fill = "F3F4F6"
+    zebra_fill = "FAFAFA"
+    text_primary = RGBColor(31, 41, 55)
+    muted_text = RGBColor(107, 114, 128)
+
+    primary_title = report_title or REPORT_TITLE
+    subtitle = report_subtitle or REPORT_SUBTITLE
+    athlete_name = player_name or PLAYER_NAME_DEFAULT
+    report_date = report_date or REPORT_DATE_DEFAULT
+    sample_size = sample_size if sample_size is not None else len(df)
+    if not sample_size:
+        sample_size = SAMPLE_SIZE_DEFAULT
+
+    def _clean(value):
+        if value is None:
+            return None
+        if isinstance(value, str):
+            txt = value.strip()
+            return txt or None
+        if pd.isna(value):
+            return None
+        return value
+
+    player_club = _clean(row.get("Team")) or PLAYER_CLUB_DEFAULT
+    player_position = _clean(row.get("Position")) or PLAYER_POSITION_DEFAULT
+    player_age = _player_age(row) or PLAYER_AGE_DEFAULT
+    minutes = row.get("Minutes played") if "Minutes played" in row.index else row.get("Minutes")
+    if pd.notna(minutes):
+        try:
+            minutes = int(float(minutes))
+        except Exception:
+            minutes = _clean(minutes)
+    else:
+        minutes = None
+    if minutes is None:
+        minutes = PLAYER_MINUTES_DEFAULT
+    competition_level = _clean(row.get("League")) or COMPETITION_LEVEL_DEFAULT
+
+    metric_percentiles: list[tuple[str, float, str]] = []
+    for metric in metrics:
+        info = _metric_percentile_info(df, metric, player_name)
+        pct_value = info.get("percentile")
+        if pd.notna(pct_value):
+            formatted = _format_metric_value(metric, info.get("value"))
+            descriptor = f"{pct_value:.0f}th pct"
+            if formatted and formatted != "—":
+                descriptor = f"{descriptor} ({formatted})"
+            metric_percentiles.append((metric, float(pct_value), descriptor))
+
+    if not metric_percentiles:
+        metric_percentiles = [(label, 0.0, text) for label, text in PERCENTILE_TABLE_DEFAULT]
+
+    percent_table_rows = [
+        (metric, descriptor)
+        for metric, _, descriptor in metric_percentiles
+        if descriptor
+    ]
+    if not percent_table_rows:
+        percent_table_rows = list(PERCENTILE_TABLE_DEFAULT)
+
+    standouts = [
+        (metric, descriptor)
+        for metric, pct, descriptor in metric_percentiles
+        if pct >= 70.0
+    ]
+    standouts = sorted(standouts, key=lambda item: next(
+        (pct for m, pct, desc in metric_percentiles if m == item[0]),
+        0.0,
+    ), reverse=True)[:5]
+    if not standouts:
+        standouts = list(STANDOUTS_DEFAULT)
+
+    development = [
+        (metric, descriptor)
+        for metric, pct, descriptor in metric_percentiles
+        if pct <= 40.0
+    ]
+    development = sorted(development, key=lambda item: next(
+        (pct for m, pct, desc in metric_percentiles if m == item[0]),
+        100.0,
+    ))[:5]
+    if not development:
+        development = list(DEVELOPMENT_AREAS_DEFAULT)
+
     doc = Document()
 
-    def _get_style(name: str):
+    def _ensure_style(name: str, style_type=WD_STYLE_TYPE.PARAGRAPH):
         try:
             return doc.styles[name]
         except KeyError:
-            return None
+            return doc.styles.add_style(name, style_type)
 
-    base_style = _get_style("Normal")
-    if base_style is not None:
-        base_style.font.name = "Calibri"
-        base_style.font.size = Pt(10.5)
-    for heading_name in ["Heading 1", "Heading 2", "Heading 3"]:
-        heading = _get_style(heading_name)
-        if heading is not None:
-            heading.font.name = "Calibri"
+    normal = _ensure_style("Normal")
+    normal.font.name = "Calibri"
+    normal.font.size = Pt(11)
+    normal.font.color.rgb = text_primary
+    normal.paragraph_format.space_before = Pt(0)
+    normal.paragraph_format.space_after = Pt(6)
+    normal.paragraph_format.line_spacing = 1.15
+
+    title_style = _ensure_style("TitleHero")
+    title_style.font.name = "Calibri"
+    title_style.font.size = Pt(28)
+    title_style.font.bold = True
+    title_style.font.color.rgb = text_primary
+    title_style.paragraph_format.space_before = Pt(0)
+    title_style.paragraph_format.space_after = Pt(10)
+    title_style.paragraph_format.line_spacing = 1.1
+
+    h1_style = _ensure_style("H1")
+    h1_style.font.name = "Calibri"
+    h1_style.font.size = Pt(20)
+    h1_style.font.bold = True
+    h1_style.font.color.rgb = text_primary
+    h1_style.paragraph_format.space_before = Pt(6)
+    h1_style.paragraph_format.space_after = Pt(8)
+    h1_style.paragraph_format.line_spacing = 1.1
+
+    h2_style = _ensure_style("H2")
+    h2_style.font.name = "Calibri"
+    h2_style.font.size = Pt(14)
+    h2_style.font.bold = True
+    h2_style.font.color.rgb = text_primary
+
+    body_style = _ensure_style("Body")
+    body_style.font.name = "Calibri"
+    body_style.font.size = Pt(11)
+    body_style.font.color.rgb = text_primary
+
+    small_caps_style = _ensure_style("SmallCaps")
+    small_caps_style.font.name = "Calibri"
+    small_caps_style.font.size = Pt(12)
+    small_caps_style.font.small_caps = True
+    small_caps_style.font.color.rgb = muted_text
+
+    tag_style = _ensure_style("Tag")
+    tag_style.font.name = "Calibri"
+    tag_style.font.size = Pt(10)
+    tag_style.font.color.rgb = text_primary
+
+    kpi_style = _ensure_style("KPI")
+    kpi_style.font.name = "Calibri"
+    kpi_style.font.size = Pt(13)
+    kpi_style.font.bold = True
+    kpi_style.font.color.rgb = text_primary
+
+    note_style = _ensure_style("Note")
+    note_style.font.name = "Calibri"
+    note_style.font.size = Pt(10.5)
+    note_style.font.italic = True
+    note_style.font.color.rgb = muted_text
 
     section = doc.sections[-1]
     section.orientation = WD_ORIENTATION.PORTRAIT
     section.page_width = Mm(210)
     section.page_height = Mm(297)
-    margin = Inches(0.6)
+    margin = Mm(20)
     section.left_margin = section.right_margin = margin
     section.top_margin = section.bottom_margin = margin
-    section.header_distance = Inches(0.3)
-    section.footer_distance = Inches(0.4)
+    section.header_distance = Mm(12)
+    section.footer_distance = Mm(12)
 
     def _apply_cell_shading(cell, fill: str):
         tc_pr = cell._tc.get_or_add_tcPr()
@@ -1085,7 +1260,85 @@ def build_player_report_docx(
         shd.set(qn("w:color"), "auto")
         shd.set(qn("w:fill"), fill)
 
-    placeholder_color = RGBColor(226, 232, 240)
+    def _set_cell_border(cell, **kwargs):
+        tc = cell._tc
+        tc_pr = tc.get_or_add_tcPr()
+        tc_borders = tc_pr.find(qn("w:tcBorders"))
+        if tc_borders is None:
+            tc_borders = OxmlElement("w:tcBorders")
+            tc_pr.append(tc_borders)
+        for edge in ("top", "left", "bottom", "right"):
+            edge_data = kwargs.get(edge)
+            if edge_data:
+                element = tc_borders.find(qn(f"w:{edge}"))
+                if element is None:
+                    element = OxmlElement(f"w:{edge}")
+                    tc_borders.append(element)
+                element.set(qn("w:val"), edge_data.get("val", "single"))
+                element.set(qn("w:sz"), str(edge_data.get("sz", 8)))
+                element.set(qn("w:color"), edge_data.get("color", "000000"))
+
+    def _set_cell_margins(cell, **kwargs):
+        tc = cell._tc
+        tc_pr = tc.get_or_add_tcPr()
+        tc_mar = tc_pr.find(qn("w:tcMar"))
+        if tc_mar is None:
+            tc_mar = OxmlElement("w:tcMar")
+            tc_pr.append(tc_mar)
+        for margin_name in ("top", "start", "bottom", "end"):
+            margin_value = kwargs.get(margin_name)
+            if margin_value is None:
+                continue
+            element = tc_mar.find(qn(f"w:{margin_name}"))
+            if element is None:
+                element = OxmlElement(f"w:{margin_name}")
+                tc_mar.append(element)
+            element.set(qn("w:w"), str(margin_value))
+            element.set(qn("w:type"), "dxa")
+
+    def _shade_paragraph(paragraph, fill: str):
+        p = paragraph._p
+        p_pr = p.get_or_add_pPr()
+        shd = p_pr.find(qn("w:shd"))
+        if shd is None:
+            shd = OxmlElement("w:shd")
+            p_pr.append(shd)
+        shd.set(qn("w:val"), "clear")
+        shd.set(qn("w:color"), "auto")
+        shd.set(qn("w:fill"), fill)
+
+    def _add_bottom_rule(paragraph, color: str = "E5E7EB", size: int = 6):
+        p = paragraph._p
+        p_pr = p.get_or_add_pPr()
+        p_borders = p_pr.find(qn("w:pBdr"))
+        if p_borders is None:
+            p_borders = OxmlElement("w:pBdr")
+            p_pr.append(p_borders)
+        bottom = p_borders.find(qn("w:bottom"))
+        if bottom is None:
+            bottom = OxmlElement("w:bottom")
+            p_borders.append(bottom)
+        bottom.set(qn("w:val"), "single")
+        bottom.set(qn("w:sz"), str(size))
+        bottom.set(qn("w:space"), "1")
+        bottom.set(qn("w:color"), color)
+
+    def _add_page_field(paragraph, instruction: str) -> None:
+        run = paragraph.add_run()
+        fld_char_begin = OxmlElement("w:fldChar")
+        fld_char_begin.set(qn("w:fldCharType"), "begin")
+        run._r.append(fld_char_begin)
+        instr_text = OxmlElement("w:instrText")
+        instr_text.set(qn("xml:space"), "preserve")
+        instr_text.text = f" {instruction} "
+        run._r.append(instr_text)
+        fld_char_separate = OxmlElement("w:fldChar")
+        fld_char_separate.set(qn("w:fldCharType"), "separate")
+        run._r.append(fld_char_separate)
+        paragraph.add_run("1")
+        fld_char_end = OxmlElement("w:fldChar")
+        fld_char_end.set(qn("w:fldCharType"), "end")
+        run._r.append(fld_char_end)
 
     header = section.header
     header.is_linked_to_previous = False
@@ -1093,82 +1346,44 @@ def build_player_report_docx(
         p = header.paragraphs[0]._p
         p.getparent().remove(p)
 
-    header_width = section.page_width - section.left_margin - section.right_margin
-    header_table = header.add_table(rows=1, cols=3, width=header_width)
+    header_table = header.add_table(rows=1, cols=2)
     header_table.autofit = False
     header_table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    for col, width in zip(header_table.columns, [Inches(2.0), Inches(4.1), Inches(2.0)]):
-        col.width = width
+    header_table.columns[0].width = Inches(6.0)
+    header_table.columns[1].width = Inches(0.5)
 
-    photo_cell, headline_cell, logo_cell = header_table.rows[0].cells
-    for cell in (photo_cell, headline_cell, logo_cell):
-        _apply_cell_shading(cell, accent_color)
-        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-        if cell.paragraphs:
-            cell.paragraphs[0].paragraph_format.space_after = Pt(0)
+    doc_name_cell, crest_cell = header_table.rows[0].cells
+    doc_name_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    crest_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-    def _render_header_image(paragraph, stream: io.BytesIO | None, placeholder: str, width: float, alignment) -> None:
-        paragraph.alignment = alignment
-        if stream is not None:
-            stream.seek(0)
-            paragraph.add_run().add_picture(stream, width=Inches(width))
-        else:
-            run = paragraph.add_run(placeholder)
-            run.bold = True
-            run.font.size = Pt(9)
-            run.font.color.rgb = placeholder_color
+    doc_name_para = doc_name_cell.paragraphs[0]
+    doc_name_para.style = doc.styles["SmallCaps"]
+    doc_name_para.text = primary_title
+    doc_name_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
-    photo_paragraph = photo_cell.paragraphs[0]
-    photo_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    _render_header_image(photo_paragraph, photo_stream, "PLAYER PHOTO", width=1.6, alignment=WD_ALIGN_PARAGRAPH.CENTER)
-    photo_caption = photo_cell.add_paragraph("Athlete")
-    photo_caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    if photo_caption.runs:
-        photo_caption.runs[0].font.size = Pt(9)
-        photo_caption.runs[0].font.color.rgb = placeholder_color
-
-    headline_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-    headline_paragraph = headline_cell.paragraphs[0]
-    headline_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    headline_run = headline_paragraph.add_run(player_name)
-    headline_run.bold = True
-    headline_run.font.size = Pt(20)
-    headline_run.font.color.rgb = RGBColor(255, 255, 255)
-
-    subtitle_paragraph = headline_cell.add_paragraph("Performance radar and percentile overview")
-    subtitle_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    if subtitle_paragraph.runs:
-        subtitle_paragraph.runs[0].font.size = Pt(11)
-        subtitle_paragraph.runs[0].font.color.rgb = placeholder_color
-
-    tagline_paragraph = headline_cell.add_paragraph("Executive report")
-    tagline_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    if tagline_paragraph.runs:
-        tagline_paragraph.runs[0].font.size = Pt(9)
-        tagline_paragraph.runs[0].font.color.rgb = placeholder_color
-
-    logo_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-    date_paragraph = logo_cell.paragraphs[0]
-    date_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    date_run = date_paragraph.add_run(datetime.now().strftime("%B %d, %Y"))
-    date_run.bold = True
-    date_run.font.size = Pt(11)
-    date_run.font.color.rgb = placeholder_color
-
-    sample_paragraph = logo_cell.add_paragraph(f"Sample size: {df.shape[0]} players")
-    sample_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    if sample_paragraph.runs:
-        sample_paragraph.runs[0].font.size = Pt(9)
-        sample_paragraph.runs[0].font.color.rgb = placeholder_color
-
-    crest_paragraph = logo_cell.add_paragraph()
-    crest_paragraph.paragraph_format.space_before = Pt(4)
-    _render_header_image(crest_paragraph, logo_stream, "CLUB CREST", width=1.4, alignment=WD_ALIGN_PARAGRAPH.CENTER)
-    crest_caption = logo_cell.add_paragraph("Club")
-    crest_caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    if crest_caption.runs:
-        crest_caption.runs[0].font.size = Pt(9)
-        crest_caption.runs[0].font.color.rgb = placeholder_color
+    crest_cell.paragraphs[0].clear()
+    crest_frame = crest_cell.add_table(rows=1, cols=1)
+    crest_frame.autofit = False
+    crest_frame.columns[0].width = Inches(0.5)
+    crest_placeholder = crest_frame.rows[0].cells[0]
+    _set_cell_border(
+        crest_placeholder,
+        top={"sz": 12, "color": neutral_border_hex},
+        bottom={"sz": 12, "color": neutral_border_hex},
+        left={"sz": 12, "color": neutral_border_hex},
+        right={"sz": 12, "color": neutral_border_hex},
+    )
+    _set_cell_margins(crest_placeholder, top=60, bottom=60, start=60, end=60)
+    crest_paragraph = crest_placeholder.paragraphs[0]
+    crest_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    if logo_stream is not None:
+        logo_stream.seek(0)
+        crest_paragraph.add_run().add_picture(logo_stream, width=Mm(12))
+    else:
+        crest_run = crest_paragraph.add_run("CLUB\nCREST")
+        crest_run.font.size = Pt(8)
+        crest_run.font.color.rgb = muted_text
+        crest_run.font.bold = True
 
     footer = section.footer
     footer.is_linked_to_previous = False
@@ -1176,182 +1391,341 @@ def build_player_report_docx(
         p = footer.paragraphs[0]._p
         p.getparent().remove(p)
 
-    footer_paragraph = footer.add_paragraph(
+    footer_table = footer.add_table(rows=1, cols=3)
+    footer_table.autofit = False
+    widths = [Inches(2.8), Inches(2.8), Inches(0.9)]
+    for idx, col in enumerate(footer_table.columns):
+        col.width = widths[idx]
+
+    footer_left, footer_center, footer_right = footer_table.rows[0].cells
+    footer_left_paragraph = footer_left.paragraphs[0]
+    footer_left_paragraph.style = doc.styles["Note"]
+    footer_left_paragraph.text = (
+        "Confidential – Authorized recipients only."
+    )
+
+    footer_center_paragraph = footer_center.paragraphs[0]
+    footer_center_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    footer_center_paragraph.style = doc.styles["Body"]
+    footer_center_paragraph.runs.clear()
+    footer_center_paragraph.add_run("Page ")
+    _add_page_field(footer_center_paragraph, "PAGE")
+    footer_center_paragraph.add_run(" of ")
+    _add_page_field(footer_center_paragraph, "NUMPAGES")
+
+    footer_right.paragraphs[0].text = ""
+
+    cover_table = doc.add_table(rows=1, cols=2)
+    cover_table.autofit = False
+    cover_table.columns[0].width = Inches(0.24)
+    cover_table.columns[1].width = Inches(6.2)
+
+    cover_bar_cell, cover_main_cell = cover_table.rows[0].cells
+    _apply_cell_shading(cover_bar_cell, accent_hex)
+
+    cover_main = cover_main_cell.paragraphs[0]
+    cover_main.style = doc.styles["TitleHero"]
+    cover_main.text = primary_title
+    cover_main.alignment = WD_ALIGN_PARAGRAPH.LEFT
+
+    subtitle_para = cover_main_cell.add_paragraph(subtitle)
+    subtitle_para.style = doc.styles["SmallCaps"]
+    subtitle_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+
+    divider_para = cover_main_cell.add_paragraph()
+    divider_para.add_run("")
+    _add_bottom_rule(divider_para)
+
+    tags_table = cover_main_cell.add_table(rows=1, cols=3)
+    tags_table.autofit = False
+    for col in tags_table.columns:
+        col.width = Inches(1.8)
+    tag_texts = [
+        f"Athlete: {athlete_name}",
+        f"Date: {report_date}",
+        f"Sample size: {sample_size}",
+    ]
+    for cell, text in zip(tags_table.rows[0].cells, tag_texts):
+        _apply_cell_shading(cell, neutral_fill)
+        _set_cell_margins(cell, top=80, bottom=80, start=140, end=140)
+        tag_para = cell.paragraphs[0]
+        tag_para.style = doc.styles["Tag"]
+        tag_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        tag_para.text = text
+
+    cover_main_cell.add_paragraph("")
+
+    photo_placeholder_table = doc.add_table(rows=1, cols=1)
+    photo_placeholder_table.autofit = False
+    photo_placeholder_table.columns[0].width = Cm(12)
+    photo_placeholder_table.rows[0].height = Cm(7)
+    photo_cell = photo_placeholder_table.rows[0].cells[0]
+    _set_cell_border(
+        photo_cell,
+        top={"sz": 12, "color": neutral_border_hex},
+        bottom={"sz": 12, "color": neutral_border_hex},
+        left={"sz": 12, "color": neutral_border_hex},
+        right={"sz": 12, "color": neutral_border_hex},
+    )
+    _set_cell_margins(photo_cell, top=200, bottom=200, start=200, end=200)
+    photo_paragraph = photo_cell.paragraphs[0]
+    photo_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    if photo_stream is not None:
+        photo_stream.seek(0)
+        photo_paragraph.add_run().add_picture(photo_stream, width=Cm(12))
+    else:
+        placeholder_run = photo_paragraph.add_run("PLAYER PHOTO")
+        placeholder_run.font.size = Pt(12)
+        placeholder_run.font.color.rgb = muted_text
+        placeholder_run.bold = True
+
+    doc.add_paragraph("")
+    doc.add_page_break()
+
+    def _add_section_heading(text: str):
+        heading = doc.add_paragraph(text, style="H1")
+        heading.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        _add_bottom_rule(heading)
+
+    _add_section_heading("Player information")
+
+    info_items = [
+        ("Club", player_club),
+        ("Position", player_position),
+        ("Age", str(player_age)),
+        ("Minutes played", f"{minutes}"),
+        ("Competition level", competition_level),
+    ]
+
+    info_table_rows = math.ceil(len(info_items) / 2)
+    info_table = doc.add_table(rows=info_table_rows, cols=2)
+    info_table.autofit = False
+    for col in info_table.columns:
+        col.width = Inches(3.3)
+
+    for idx, (label, value) in enumerate(info_items):
+        row_idx = idx // 2
+        col_idx = idx % 2
+        cell = info_table.rows[row_idx].cells[col_idx]
+        _set_cell_border(
+            cell,
+            top={"sz": 12, "color": neutral_border_hex},
+            bottom={"sz": 12, "color": neutral_border_hex},
+            left={"sz": 12, "color": neutral_border_hex},
+            right={"sz": 12, "color": neutral_border_hex},
+        )
+        _set_cell_margins(cell, top=120, bottom=140, start=200, end=200)
+        bar = cell.paragraphs[0]
+        bar.clear()
+        color_bar = cell.add_paragraph("")
+        color_bar.paragraph_format.space_after = Pt(6)
+        color_bar.paragraph_format.line_spacing = 1
+        color_bar_run = color_bar.add_run(" ")
+        color_bar_run.font.size = Pt(1)
+        _shade_paragraph(color_bar, accent_hex)
+        label_para = cell.add_paragraph(label, style="SmallCaps")
+        label_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        value_para = cell.add_paragraph(value, style="KPI")
+        value_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+
+    if len(info_items) % 2 != 0:
+        empty_cell = info_table.rows[-1].cells[-1]
+        empty_cell.text = ""
+
+    doc.add_paragraph("")
+
+    notes_container = doc.add_table(rows=1, cols=1)
+    notes_container.autofit = False
+    notes_cell = notes_container.rows[0].cells[0]
+    _apply_cell_shading(notes_cell, "F9FAFB")
+    _set_cell_border(
+        notes_cell,
+        top={"sz": 12, "color": neutral_border_hex},
+        bottom={"sz": 12, "color": neutral_border_hex},
+        left={"sz": 12, "color": neutral_border_hex},
+        right={"sz": 12, "color": neutral_border_hex},
+    )
+    _set_cell_margins(notes_cell, top=160, bottom=160, start=200, end=200)
+    notes_title_para = notes_cell.paragraphs[0]
+    notes_title_para.style = doc.styles["H2"]
+    notes_title_para.text = "Editable notes"
+    notes_text = notes_cell.add_paragraph(
+        "Add tactical context, coaching directives, or presentation notes here before exporting to Canva.",
+        style="Body",
+    )
+    notes_text.alignment = WD_ALIGN_PARAGRAPH.LEFT
+
+    doc.add_paragraph("")
+
+    _add_section_heading("Visual analysis")
+
+    analysis_intro = doc.add_paragraph(
+        "Percentiles calculated on the loaded dataset (negative-impact metrics are reversed automatically).",
+        style="Body",
+    )
+    analysis_intro.alignment = WD_ALIGN_PARAGRAPH.LEFT
+
+    chart_card = doc.add_table(rows=1, cols=1)
+    chart_card.autofit = False
+    chart_cell = chart_card.rows[0].cells[0]
+    _set_cell_border(
+        chart_cell,
+        top={"sz": 12, "color": neutral_border_hex},
+        bottom={"sz": 12, "color": neutral_border_hex},
+        left={"sz": 12, "color": neutral_border_hex},
+        right={"sz": 12, "color": neutral_border_hex},
+    )
+    _set_cell_margins(chart_cell, top=120, bottom=140, start=200, end=200)
+    chart_cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+    chart_cell.paragraphs[0].text = ""
+
+    try:
+        radar_png = make_radar_bars_png(
+            df,
+            player_a=player_name,
+            player_b=None,
+            metrics=metrics,
+            color_a=accent_hex,
+            color_b=color_b,
+            bar_mode="percentile",
+        )
+        chart_cell.paragraphs[0].add_run().add_picture(radar_png, width=Inches(6.4))
+    except Exception:
+        fallback = chart_cell.add_paragraph("Radar visualization unavailable.", style="Note")
+        fallback.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    doc.add_paragraph("")
+
+    percent_table = doc.add_table(rows=len(percent_table_rows) + 1, cols=2)
+    percent_table.autofit = False
+    percent_table.columns[0].width = Inches(3.6)
+    percent_table.columns[1].width = Inches(2.8)
+
+    header_cells = percent_table.rows[0].cells
+    _apply_cell_shading(header_cells[0], neutral_fill)
+    _apply_cell_shading(header_cells[1], neutral_fill)
+    header_cells[0].paragraphs[0].text = "Metric"
+    header_cells[0].paragraphs[0].style = doc.styles["H2"]
+    header_cells[1].paragraphs[0].text = "Percentile / Value"
+    header_cells[1].paragraphs[0].style = doc.styles["H2"]
+
+    for idx, (metric_label, descriptor) in enumerate(percent_table_rows, start=1):
+        cells = percent_table.rows[idx].cells
+        if idx % 2 == 0:
+            _apply_cell_shading(cells[0], zebra_fill)
+            _apply_cell_shading(cells[1], zebra_fill)
+        cells[0].paragraphs[0].text = metric_label
+        cells[0].paragraphs[0].style = doc.styles["Body"]
+        descriptor_para = cells[1].paragraphs[0]
+        descriptor_para.style = doc.styles["Body"]
+        descriptor_para.text = ""
+        percent_part = descriptor
+        value_part = ""
+        if "(" in descriptor:
+            percent_part, rest = descriptor.split("(", 1)
+            percent_part = percent_part.strip()
+            value_part = f"({rest}".strip()
+        run_pct = descriptor_para.add_run(percent_part.strip())
+        run_pct.bold = True
+        if value_part:
+            descriptor_para.add_run(f" {value_part}")
+
+    doc.add_paragraph("")
+
+    _add_section_heading("Quick insights")
+
+    insights_table = doc.add_table(rows=1, cols=2)
+    insights_table.autofit = False
+    insights_table.columns[0].width = Inches(3.3)
+    insights_table.columns[1].width = Inches(3.3)
+
+    standouts_cell, development_cell = insights_table.rows[0].cells
+    for insight_cell in (standouts_cell, development_cell):
+        _set_cell_border(
+            insight_cell,
+            top={"sz": 12, "color": neutral_border_hex},
+            bottom={"sz": 12, "color": neutral_border_hex},
+            left={"sz": 12, "color": neutral_border_hex},
+            right={"sz": 12, "color": neutral_border_hex},
+        )
+        _set_cell_margins(insight_cell, top=160, bottom=140, start=200, end=200)
+
+    standouts_title = standouts_cell.paragraphs[0]
+    standouts_title.style = doc.styles["H2"]
+    standouts_title.text = "Standouts (≥ 70th percentile)"
+
+    for metric_label, descriptor in standouts:
+        paragraph = standouts_cell.add_paragraph(style="Body")
+        paragraph.paragraph_format.space_before = Pt(6)
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        emoji_run = paragraph.add_run("✅ ")
+        emoji_run.bold = False
+        paragraph.add_run(f"{metric_label}: ")
+        percent_part = descriptor
+        value_part = ""
+        if "(" in descriptor:
+            percent_part, rest = descriptor.split("(", 1)
+            percent_part = percent_part.strip()
+            value_part = f"({rest}".strip()
+        pct_run = paragraph.add_run(percent_part.strip())
+        pct_run.bold = True
+        if value_part:
+            paragraph.add_run(f" {value_part}")
+
+    development_title = development_cell.paragraphs[0]
+    development_title.style = doc.styles["H2"]
+    development_title.text = "Development areas (≤ 40th percentile)"
+
+    for metric_label, descriptor in development:
+        paragraph = development_cell.add_paragraph(style="Body")
+        paragraph.paragraph_format.space_before = Pt(6)
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        paragraph.add_run("⚠️ ")
+        paragraph.add_run(f"{metric_label}: ")
+        percent_part = descriptor
+        value_part = ""
+        if "(" in descriptor:
+            percent_part, rest = descriptor.split("(", 1)
+            percent_part = percent_part.strip()
+            value_part = f"({rest}".strip()
+        pct_run = paragraph.add_run(percent_part.strip())
+        pct_run.bold = True
+        if value_part:
+            paragraph.add_run(f" {value_part}")
+
+    doc.add_paragraph("")
+
+    confidentiality_block = doc.add_table(rows=1, cols=1)
+    confidentiality_block.autofit = False
+    block_cell = confidentiality_block.rows[0].cells[0]
+    _apply_cell_shading(block_cell, neutral_fill)
+    _set_cell_border(
+        block_cell,
+        top={"sz": 12, "color": neutral_border_hex},
+        bottom={"sz": 12, "color": neutral_border_hex},
+        left={"sz": 12, "color": neutral_border_hex},
+        right={"sz": 12, "color": neutral_border_hex},
+    )
+    _set_cell_margins(block_cell, top=160, bottom=160, start=200, end=200)
+    confidentiality_para = block_cell.paragraphs[0]
+    confidentiality_para.style = doc.styles["Body"]
+    confidentiality_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    confidentiality_para.text = (
         "Confidential – This report contains proprietary information for authorized recipients only."
         " Do not copy, share, or distribute without written permission."
     )
-    footer_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    if footer_paragraph.runs:
-        footer_paragraph.runs[0].font.size = Pt(8.5)
-        footer_paragraph.runs[0].font.color.rgb = RGBColor(110, 117, 130)
-
-    doc.add_paragraph("")
-
-    profile_card = doc.add_table(rows=1, cols=2)
-    profile_card.autofit = True
-    snapshot_cell, notes_cell = profile_card.rows[0].cells
-
-    for cell in (snapshot_cell, notes_cell):
-        _apply_cell_shading(cell, neutral_bg)
-        cell.vertical_alignment = WD_ALIGN_VERTICAL.TOP
-        if cell.paragraphs:
-            cell.paragraphs[0].paragraph_format.space_after = Pt(0)
-
-    snapshot_title = snapshot_cell.paragraphs[0].add_run("Player information")
-    snapshot_title.bold = True
-    snapshot_title.font.size = Pt(12)
-    snapshot_cell.add_paragraph("")
-
-    def _clean(value):
-        if value is None:
-            return None
-        if isinstance(value, str):
-            value = value.strip()
-            return value if value else None
-        if pd.isna(value):
-            return None
-        return value
-
-    team = _clean(row.get("Team"))
-    position = _clean(row.get("Position"))
-    age = _player_age(row)
-    minutes = row.get("Minutes played") if "Minutes played" in row.index else row.get("Minutes")
-    if pd.notna(minutes):
-        try:
-            minutes = int(float(minutes))
-        except Exception:
-            minutes = _clean(minutes)
-    else:
-        minutes = None
-
-    info_lines: list[str] = []
-    if team:
-        info_lines.append(f"Club: {team}")
-    if position:
-        info_lines.append(f"Position: {position}")
-    if age:
-        info_lines.append(f"Age: {age}")
-    if minutes is not None:
-        info_lines.append(f"Minutes played: {minutes}")
-    info_lines.append("Competition level: {0}".format(_clean(row.get("League")) or "—"))
-
-    for line in info_lines:
-        p = snapshot_cell.add_paragraph(line)
-        p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-        if p.runs:
-            p.runs[0].font.size = Pt(11)
-
-    notes_title = notes_cell.paragraphs[0].add_run("Editable notes")
-    notes_title.bold = True
-    notes_title.font.size = Pt(12)
-    notes_placeholder = notes_cell.add_paragraph(
-        "Add tactical context, coaching directives, or presentation notes here before exporting to Canva."
-    )
-    notes_placeholder.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    if notes_placeholder.runs:
-        notes_placeholder.runs[0].font.size = Pt(10)
-        notes_placeholder.runs[0].font.color.rgb = RGBColor(90, 95, 105)
-    notes_cell.add_paragraph("")
-
-    doc.add_paragraph("")
-
-    chart_title = doc.add_paragraph("Visual analysis")
-    chart_title.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    if chart_title.runs:
-        chart_title.runs[0].bold = True
-
-    radar_card = doc.add_table(rows=1, cols=1)
-    radar_card.autofit = True
-    radar_cell = radar_card.rows[0].cells[0]
-    _apply_cell_shading(radar_cell, neutral_bg)
-    radar_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-    radar_cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-    radar_png = make_radar_bars_png(
-        df,
-        player_a=player_name,
-        player_b=None,
-        metrics=metrics,
-        color_a=color_a,
-        color_b=color_b,
-        bar_mode="percentile",
-    )
-    pic_run = radar_cell.paragraphs[0].add_run()
-    pic_run.add_picture(radar_png, width=Inches(6.9))
-
-    note = doc.add_paragraph(
-        "Percentiles calculated on the loaded dataset (negative-impact metrics are reversed automatically)."
-    )
-    note.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    if note.runs:
-        note.runs[0].font.size = Pt(9)
-        note.runs[0].italic = True
-
-    doc.add_paragraph("")
-
-    insights_header = doc.add_paragraph("Quick insights")
-    insights_header.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    if insights_header.runs:
-        insights_header.runs[0].bold = True
-
-    insight_table = doc.add_table(rows=1, cols=2)
-    insight_table.autofit = True
-    for cell in insight_table.rows[0].cells:
-        _apply_cell_shading(cell, neutral_bg)
-        cell.vertical_alignment = WD_ALIGN_VERTICAL.TOP
-
-    strengths_cell, dev_cell = insight_table.rows[0].cells
-
-    strengths_cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.LEFT
-    strengths_title = strengths_cell.paragraphs[0].add_run("Standouts (≥ 70th percentile)")
-    strengths_title.bold = True
-
-    dev_cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.LEFT
-    dev_title = dev_cell.paragraphs[0].add_run("Development areas (≤ 40th percentile)")
-    dev_title.bold = True
-
-    metric_percentiles: list[tuple[str, float, float | None]] = []
-    for metric in metrics:
-        info = _metric_percentile_info(df, metric, player_name)
-        pct_value = info.get("percentile")
-        if pd.notna(pct_value):
-            metric_percentiles.append((metric, float(pct_value), info.get("value")))
-
-    strengths = sorted(
-        [m for m in metric_percentiles if m[1] >= 70.0],
-        key=lambda x: x[1],
-        reverse=True,
-    )[:5]
-    devs = sorted(
-        [m for m in metric_percentiles if m[1] <= 40.0],
-        key=lambda x: x[1],
-    )[:5]
-
-    def _render_list(cell, items):
-        if not items:
-            placeholder = cell.add_paragraph("No items to highlight yet.")
-            placeholder.paragraph_format.space_before = Pt(4)
-            if placeholder.runs:
-                placeholder.runs[0].font.size = Pt(10)
-            return
-        for metric_name, pct_value, metric_value in items:
-            bullet = cell.add_paragraph(style="List Bullet")
-            bullet.paragraph_format.left_indent = Inches(0.15)
-            bullet.paragraph_format.space_before = Pt(2)
-            suffix = _format_metric_value(metric_name, metric_value)
-            run = bullet.add_run(
-                f"{metric_name}: {pct_value:.0f}th pct ({suffix})"
-            )
-            run.font.size = Pt(10)
-
-    _render_list(strengths_cell, strengths)
-    _render_list(dev_cell, devs)
 
     output = io.BytesIO()
     doc.save(output)
     output.seek(0)
-    return output
 
+    try:
+        with open(OUTPUT_FILE, "wb") as f:
+            f.write(output.getbuffer())
+    except Exception:
+        pass
+
+    return output
 # ===================== SIDEBAR — Controls =====================
 st.sidebar.header("⚙️ Settings")
 up = st.sidebar.file_uploader("Upload merged Excel (WyScout + SkillCorner)", type=["xlsx"])
