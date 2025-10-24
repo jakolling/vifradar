@@ -961,9 +961,9 @@ def make_radar_bars_png(
     bar_blocks = 1 + (1 if player_b else 0)
     total_bar_rows = rows_per_player * bar_blocks
 
-    base_height = 10.2
-    fig = plt.figure(figsize=(8.3, base_height + total_bar_rows * 0.45))
-    height_ratios = [3.6, 3.2] + [0.55] * total_bar_rows if total_bar_rows else [3.6, 3.2]
+    base_height = 9.4
+    fig = plt.figure(figsize=(8.3, base_height + total_bar_rows * 0.38))
+    height_ratios = [4.4, 3.4] + [0.4] * total_bar_rows if total_bar_rows else [4.4, 3.4]
     gs = GridSpec(
         nrows=2 + total_bar_rows,
         ncols=3,
@@ -974,7 +974,12 @@ def make_radar_bars_png(
     # Radar spans first 2 rows
     ax_radar = fig.add_subplot(gs[0:2, :])
     radar.setup_axis(ax=ax_radar)
-    radar.draw_circles(ax=ax_radar, facecolor="#f3f3f3", edgecolor="#c9c9c9", alpha=0.18)
+    radar.draw_circles(
+        ax=ax_radar,
+        facecolor="#f8fafc",
+        edgecolor="#cbd5f5",
+        alpha=0.22,
+    )
     try:
         radar.spoke(ax=ax_radar, color="#c9c9c9", linestyle="--", alpha=0.18)
     except Exception:
@@ -983,7 +988,7 @@ def make_radar_bars_png(
     if v_b is not None:
         radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": color_b+"33", "edgecolor": color_b, "linewidth": 2})
     radar.draw_range_labels(ax=ax_radar, fontsize=9)
-    radar.draw_param_labels(ax=ax_radar, fontsize=10)
+    radar.draw_param_labels(ax=ax_radar, fontsize=11)
 
     title_a = _player_label(row_a)
     title = title_a if row_b is None else f"{title_a} vs {_player_label(row_b)}"
@@ -1019,12 +1024,13 @@ def make_radar_bars_png(
                 # Converte para escala de exibição
                 bar_value *= scale_max
 
-            ax.barh([0], [bar_value], color=color_a if player_name == player_a else color_b)
+            bar_color = color_a if player_name == player_a else color_b
+            ax.barh([0], [bar_value], color=bar_color)
             ax.set_xlim(0, scale_max)
             ax.set_yticks([])
             ax.set_xticks(xticks)
             ax.set_xticklabels(xticklabels, fontsize=7)
-            ax.set_title(label, fontsize=9, pad=2)
+            ax.set_title(label, fontsize=9, pad=2, loc="left")
             for spine in ["top", "right", "left"]:
                 ax.spines[spine].set_visible(False)
 
@@ -1033,7 +1039,7 @@ def make_radar_bars_png(
         _draw_bar_block(start_row=rows_per_player, player_name=player_b)
 
     buf = io.BytesIO()
-    fig.tight_layout(pad=1.0)
+    fig.tight_layout(pad=1.1)
     fig.savefig(buf, format="png", dpi=220, bbox_inches="tight")
     plt.close(fig)
     buf.seek(0)
@@ -1087,6 +1093,7 @@ def build_player_report_docx(
     logo_stream = _to_stream(team_logo)
 
     accent_hex = "2563EB"
+    accent_color = f"#{accent_hex}"
     neutral_border_hex = "D1D5DB"
     neutral_fill = "F3F4F6"
     zebra_fill = "FAFAFA"
@@ -1126,19 +1133,67 @@ def build_player_report_docx(
         minutes = PLAYER_MINUTES_DEFAULT
     competition_level = _clean(row.get("League")) or COMPETITION_LEVEL_DEFAULT
 
+    def _descriptor_for_metric(metric_name: str, pct_value: float, raw_value):
+        descriptor = f"{pct_value:.0f}th pct"
+        formatted = _format_metric_value(metric_name, raw_value)
+        if formatted and formatted != "—":
+            descriptor = f"{descriptor} ({formatted})"
+        return descriptor
+
     metric_percentiles: list[tuple[str, float, str]] = []
+    insight_pool: list[dict[str, object]] = []
     for metric in metrics:
         info = _metric_percentile_info(df, metric, player_name)
         pct_value = info.get("percentile")
         if pd.notna(pct_value):
-            formatted = _format_metric_value(metric, info.get("value"))
-            descriptor = f"{pct_value:.0f}th pct"
-            if formatted and formatted != "—":
-                descriptor = f"{descriptor} ({formatted})"
-            metric_percentiles.append((metric, float(pct_value), descriptor))
+            pct_float = float(pct_value)
+            descriptor = _descriptor_for_metric(metric, pct_float, info.get("value"))
+            metric_percentiles.append((metric, pct_float, descriptor))
+            insight_pool.append(
+                {
+                    "metric": metric,
+                    "pct": pct_float,
+                    "descriptor": descriptor,
+                    "source": "radar",
+                }
+            )
+
+    candidate_additional_metrics = [
+        col
+        for col in df.columns
+        if col not in metrics
+        and col not in ID_COLS_CANDIDATES
+        and pd.api.types.is_numeric_dtype(df[col])
+    ]
+
+    for metric in candidate_additional_metrics:
+        info = _metric_percentile_info(df, metric, player_name)
+        pct_value = info.get("percentile")
+        if not pd.notna(pct_value):
+            continue
+        pct_float = float(pct_value)
+        if pct_float >= 70.0 or pct_float <= 40.0:
+            descriptor = _descriptor_for_metric(metric, pct_float, info.get("value"))
+            insight_pool.append(
+                {
+                    "metric": metric,
+                    "pct": pct_float,
+                    "descriptor": descriptor,
+                    "source": "extra",
+                }
+            )
 
     if not metric_percentiles:
         metric_percentiles = [(label, 0.0, text) for label, text in PERCENTILE_TABLE_DEFAULT]
+        for label, _, descriptor in metric_percentiles:
+            insight_pool.append(
+                {
+                    "metric": label,
+                    "pct": None,
+                    "descriptor": descriptor,
+                    "source": "default",
+                }
+            )
 
     percent_table_rows = [
         (metric, descriptor)
@@ -1148,27 +1203,64 @@ def build_player_report_docx(
     if not percent_table_rows:
         percent_table_rows = list(PERCENTILE_TABLE_DEFAULT)
 
-    standouts = [
-        (metric, descriptor)
-        for metric, pct, descriptor in metric_percentiles
-        if pct >= 70.0
-    ]
-    standouts = sorted(standouts, key=lambda item: next(
-        (pct for m, pct, desc in metric_percentiles if m == item[0]),
-        0.0,
-    ), reverse=True)[:5]
+    def _select_insights(
+        pool: list[dict[str, object]],
+        predicate,
+        *,
+        limit: int,
+        reverse: bool,
+    ) -> list[tuple[str, str]]:
+        filtered: list[dict[str, object]] = [
+            item
+            for item in pool
+            if predicate(item) and item.get("descriptor")
+        ]
+        filtered.sort(key=lambda item: item.get("pct", 0.0) or 0.0, reverse=reverse)
+
+        unique: list[dict[str, object]] = []
+        seen: set[str] = set()
+        for item in filtered:
+            metric_name = str(item.get("metric"))
+            if metric_name in seen:
+                continue
+            unique.append(item)
+            seen.add(metric_name)
+            if len(unique) == limit:
+                break
+
+        extra_candidates = [
+            item
+            for item in filtered
+            if item.get("source") == "extra"
+            and str(item.get("metric")) not in seen
+        ]
+        if extra_candidates and not any(it.get("source") == "extra" for it in unique):
+            replacement = extra_candidates[0]
+            if unique and len(unique) >= limit:
+                unique[-1] = replacement
+            else:
+                unique.append(replacement)
+
+        return [
+            (str(item.get("metric")), str(item.get("descriptor")))
+            for item in unique[:limit]
+        ]
+
+    standouts = _select_insights(
+        insight_pool,
+        lambda item: item.get("pct") is not None and item.get("pct") >= 70.0,
+        limit=5,
+        reverse=True,
+    )
     if not standouts:
         standouts = list(STANDOUTS_DEFAULT)
 
-    development = [
-        (metric, descriptor)
-        for metric, pct, descriptor in metric_percentiles
-        if pct <= 40.0
-    ]
-    development = sorted(development, key=lambda item: next(
-        (pct for m, pct, desc in metric_percentiles if m == item[0]),
-        100.0,
-    ))[:5]
+    development = _select_insights(
+        insight_pool,
+        lambda item: item.get("pct") is not None and item.get("pct") <= 40.0,
+        limit=5,
+        reverse=False,
+    )
     if not development:
         development = list(DEVELOPMENT_AREAS_DEFAULT)
 
@@ -1340,6 +1432,14 @@ def build_player_report_docx(
         fld_char_end.set(qn("w:fldCharType"), "end")
         run._r.append(fld_char_end)
 
+    def _force_update_fields(document: Document) -> None:
+        settings_element = document.settings.element
+        update_fields = settings_element.find(qn("w:updateFields"))
+        if update_fields is None:
+            update_fields = OxmlElement("w:updateFields")
+            settings_element.append(update_fields)
+        update_fields.set(qn("w:val"), "true")
+
     header = section.header
     header.is_linked_to_previous = False
     while header.paragraphs:
@@ -1486,6 +1586,60 @@ def build_player_report_docx(
     doc.add_paragraph("")
     doc.add_page_break()
 
+    hero_table = doc.add_table(rows=1, cols=2)
+    hero_table.autofit = False
+    hero_table.columns[0].width = Inches(3.9)
+    hero_table.columns[1].width = Inches(2.7)
+    hero_left, hero_right = hero_table.rows[0].cells
+
+    for hero_cell in (hero_left, hero_right):
+        _set_cell_border(
+            hero_cell,
+            top={"sz": 12, "color": neutral_border_hex},
+            bottom={"sz": 12, "color": neutral_border_hex},
+            left={"sz": 12, "color": neutral_border_hex},
+            right={"sz": 12, "color": neutral_border_hex},
+        )
+        _set_cell_margins(hero_cell, top=160, bottom=160, start=200, end=200)
+
+    hero_left.text = ""
+    hero_band = hero_left.add_paragraph(" ")
+    hero_band.paragraph_format.space_after = Pt(6)
+    _shade_paragraph(hero_band, accent_hex)
+    hero_name = hero_left.add_paragraph(athlete_name, style="H1")
+    hero_name.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    hero_role = hero_left.add_paragraph(player_position, style="SmallCaps")
+    hero_role.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    hero_club = hero_left.add_paragraph(player_club, style="Body")
+    hero_club.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    hero_comp = hero_left.add_paragraph(f"Competition: {competition_level}", style="Body")
+    hero_comp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    hero_right.text = ""
+    _apply_cell_shading(hero_right, "F9FAFB")
+    hero_right_title = hero_right.add_paragraph("Snapshot", style="SmallCaps")
+    hero_right_title.paragraph_format.space_after = Pt(4)
+    hero_stats = [
+        ("Report date", report_date),
+        ("Age", str(player_age)),
+        ("Minutes", f"{minutes}"),
+        ("Sample size", str(sample_size)),
+    ]
+    for label, value in hero_stats:
+        if value is None:
+            value_display = "—"
+        elif isinstance(value, str):
+            value_display = value.strip() or "—"
+        else:
+            value_display = f"{value}"
+        stat_para = hero_right.add_paragraph(style="Body")
+        stat_para.paragraph_format.space_before = Pt(2)
+        label_run = stat_para.add_run(f"{label}: ")
+        label_run.bold = True
+        stat_para.add_run(value_display)
+
+    doc.add_paragraph("")
+
     def _add_section_heading(text: str):
         heading = doc.add_paragraph(text, style="H1")
         heading.alignment = WD_ALIGN_PARAGRAPH.LEFT
@@ -1519,12 +1673,11 @@ def build_player_report_docx(
             right={"sz": 12, "color": neutral_border_hex},
         )
         _set_cell_margins(cell, top=120, bottom=140, start=200, end=200)
-        bar = cell.paragraphs[0]
-        bar.clear()
-        color_bar = cell.add_paragraph("")
+        cell.text = ""
+        color_bar = cell.add_paragraph(" ")
         color_bar.paragraph_format.space_after = Pt(6)
         color_bar.paragraph_format.line_spacing = 1
-        color_bar_run = color_bar.add_run(" ")
+        color_bar_run = color_bar.runs[0]
         color_bar_run.font.size = Pt(1)
         _shade_paragraph(color_bar, accent_hex)
         label_para = cell.add_paragraph(label, style="SmallCaps")
@@ -1579,9 +1732,22 @@ def build_player_report_docx(
         left={"sz": 12, "color": neutral_border_hex},
         right={"sz": 12, "color": neutral_border_hex},
     )
+    _apply_cell_shading(chart_cell, "F9FAFB")
     _set_cell_margins(chart_cell, top=120, bottom=140, start=200, end=200)
-    chart_cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-    chart_cell.paragraphs[0].text = ""
+    chart_cell.text = ""
+    chart_band = chart_cell.add_paragraph(" ")
+    chart_band.paragraph_format.space_after = Pt(6)
+    _shade_paragraph(chart_band, accent_hex)
+    chart_title = chart_cell.add_paragraph("Radar & percentile bars", style="SmallCaps")
+    chart_title.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    chart_caption = chart_cell.add_paragraph(
+        "Single-player radar alongside percentile bars across the selected metrics.",
+        style="Note",
+    )
+    chart_caption.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    chart_caption.paragraph_format.space_after = Pt(12)
+    chart_image_para = chart_cell.add_paragraph()
+    chart_image_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
     try:
         radar_png = make_radar_bars_png(
@@ -1589,11 +1755,11 @@ def build_player_report_docx(
             player_a=player_name,
             player_b=None,
             metrics=metrics,
-            color_a=accent_hex,
-            color_b=color_b,
+            color_a=accent_color,
+            color_b=color_b or "#9CA3AF",
             bar_mode="percentile",
         )
-        chart_cell.paragraphs[0].add_run().add_picture(radar_png, width=Inches(6.4))
+        chart_image_para.add_run().add_picture(radar_png, width=Inches(6.5))
     except Exception:
         fallback = chart_cell.add_paragraph("Radar visualization unavailable.", style="Note")
         fallback.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -1718,6 +1884,8 @@ def build_player_report_docx(
         "Confidential – This report contains proprietary information for authorized recipients only."
         " Do not copy, share, or distribute without written permission."
     )
+
+    _force_update_fields(doc)
 
     output = io.BytesIO()
     doc.save(output)
