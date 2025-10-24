@@ -1446,82 +1446,6 @@ def build_player_report_docx(
         p.getparent().remove(p)
 
     usable_width = section.page_width - section.left_margin - section.right_margin
-    photo_width = Cm(1.2)
-    crest_width = Cm(1.2)
-    info_width = max(usable_width - photo_width - crest_width, Inches(4))
-
-    header_table = header.add_table(rows=1, cols=3, width=usable_width)
-    header_table.autofit = False
-    header_table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    header_table.columns[0].width = photo_width
-    header_table.columns[1].width = info_width
-    header_table.columns[2].width = crest_width
-
-    photo_cell, info_cell, crest_cell = header_table.rows[0].cells
-    photo_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-    info_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-    crest_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-
-    photo_cell.paragraphs[0].clear()
-    photo_frame = photo_cell.add_table(rows=1, cols=1)
-    photo_frame.autofit = False
-    photo_frame.columns[0].width = photo_width
-    photo_placeholder = photo_frame.rows[0].cells[0]
-    _set_cell_border(
-        photo_placeholder,
-        top={"sz": 12, "color": neutral_border_hex},
-        bottom={"sz": 12, "color": neutral_border_hex},
-        left={"sz": 12, "color": neutral_border_hex},
-        right={"sz": 12, "color": neutral_border_hex},
-    )
-    _set_cell_margins(photo_placeholder, top=60, bottom=60, start=60, end=60)
-    photo_paragraph = photo_placeholder.paragraphs[0]
-    photo_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    if photo_stream is not None:
-        photo_stream.seek(0)
-        photo_paragraph.add_run().add_picture(photo_stream, width=photo_width)
-    else:
-        photo_run = photo_paragraph.add_run("PLAYER\nPHOTO")
-        photo_run.font.size = Pt(8)
-        photo_run.font.color.rgb = muted_text
-        photo_run.font.bold = True
-
-    info_cell.text = ""
-    title_para = info_cell.add_paragraph(primary_title, style="SmallCaps")
-    title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    subtitle_para = info_cell.add_paragraph(subtitle, style="Tag")
-    subtitle_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    name_para = info_cell.add_paragraph(athlete_name, style="TitleHero")
-    name_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    strap_line = info_cell.add_paragraph(
-        f"{player_position} · {player_club}",
-        style="Body",
-    )
-    strap_line.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-    crest_cell.paragraphs[0].clear()
-    crest_frame = crest_cell.add_table(rows=1, cols=1)
-    crest_frame.autofit = False
-    crest_frame.columns[0].width = crest_width
-    crest_placeholder = crest_frame.rows[0].cells[0]
-    _set_cell_border(
-        crest_placeholder,
-        top={"sz": 12, "color": neutral_border_hex},
-        bottom={"sz": 12, "color": neutral_border_hex},
-        left={"sz": 12, "color": neutral_border_hex},
-        right={"sz": 12, "color": neutral_border_hex},
-    )
-    _set_cell_margins(crest_placeholder, top=60, bottom=60, start=60, end=60)
-    crest_paragraph = crest_placeholder.paragraphs[0]
-    crest_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    if logo_stream is not None:
-        logo_stream.seek(0)
-        crest_paragraph.add_run().add_picture(logo_stream, width=crest_width)
-    else:
-        crest_run = crest_paragraph.add_run("CLUB\nCREST")
-        crest_run.font.size = Pt(8)
-        crest_run.font.color.rgb = muted_text
-        crest_run.font.bold = True
 
     footer = section.footer
     footer.is_linked_to_previous = False
@@ -1540,29 +1464,6 @@ def build_player_report_docx(
     footer_left_paragraph.style = doc.styles["Note"]
     footer_left_paragraph.text = (
         "Confidential – Authorized recipients only."
-    )
-    _set_cell_margins(photo_placeholder, top=60, bottom=60, start=60, end=60)
-    photo_paragraph = photo_placeholder.paragraphs[0]
-    photo_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    if photo_stream is not None:
-        photo_stream.seek(0)
-        photo_paragraph.add_run().add_picture(photo_stream, width=photo_width)
-    else:
-        photo_run = photo_paragraph.add_run("PLAYER\nPHOTO")
-        photo_run.font.size = Pt(8)
-        photo_run.font.color.rgb = muted_text
-        photo_run.font.bold = True
-
-    info_cell.text = ""
-    title_para = info_cell.add_paragraph(primary_title, style="SmallCaps")
-    title_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    subtitle_para = info_cell.add_paragraph(subtitle, style="Tag")
-    subtitle_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    name_para = info_cell.add_paragraph(athlete_name, style="TitleHero")
-    name_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    strap_line = info_cell.add_paragraph(
-        f"{player_position} · {player_club}",
-        style="Body",
     )
     strap_line.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
@@ -1657,22 +1558,78 @@ def build_player_report_docx(
         - section.right_margin.cm
     )
 
-    meta_table = doc.add_table(rows=1, cols=3)
-    meta_table.autofit = False
-    for column in meta_table.columns:
-        column.width = Cm(usable_width_cm / 3)
-    meta_tags = [
-        f"Athlete: {athlete_name}",
-        f"Date: {report_date}",
-        f"Sample size: {sample_size}",
-    ]
-    for cell, text in zip(meta_table.rows[0].cells, meta_tags):
-        _apply_cell_shading(cell, neutral_fill)
-        _set_cell_margins(cell, top=80, bottom=80, start=140, end=140)
-        tag_para = cell.paragraphs[0]
-        tag_para.style = doc.styles["Tag"]
-        tag_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-        tag_para.text = text
+    hero_table = doc.add_table(rows=1, cols=3)
+    hero_table.autofit = False
+    hero_table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    hero_left_cm = max(3.8, usable_width_cm * 0.28)
+    hero_right_cm = hero_left_cm
+    hero_center_cm = max(usable_width_cm - hero_left_cm - hero_right_cm, 6.0)
+    hero_table.columns[0].width = Cm(hero_left_cm)
+    hero_table.columns[1].width = Cm(hero_center_cm)
+    hero_table.columns[2].width = Cm(hero_right_cm)
+
+    hero_row = hero_table.rows[0]
+    for cell in hero_row.cells:
+        _apply_cell_shading(cell, "F9FAFB")
+        _set_cell_margins(cell, top=200, bottom=200, start=200, end=200)
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+
+    photo_cell, info_cell, crest_cell = hero_row.cells
+
+    _set_cell_border(
+        photo_cell,
+        top={"sz": 12, "color": neutral_border_hex},
+        bottom={"sz": 12, "color": neutral_border_hex},
+        left={"sz": 12, "color": neutral_border_hex},
+        right={"sz": 12, "color": neutral_border_hex},
+    )
+    photo_cell.text = ""
+    photo_para = photo_cell.paragraphs[0]
+    photo_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    if photo_stream is not None:
+        photo_stream.seek(0)
+        photo_para.add_run().add_picture(photo_stream, width=Cm(hero_left_cm - 1.0))
+    else:
+        photo_run = photo_para.add_run("PLAYER\nPHOTO")
+        photo_run.font.size = Pt(9)
+        photo_run.font.bold = True
+        photo_run.font.color.rgb = muted_text
+
+    info_cell.text = ""
+    info_band = info_cell.paragraphs[0]
+    info_band.text = " "
+    info_band.paragraph_format.space_after = Pt(6)
+    _shade_paragraph(info_band, accent_hex)
+    title_para = info_cell.add_paragraph(primary_title, style="SmallCaps")
+    title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    subtitle_para = info_cell.add_paragraph(subtitle, style="Tag")
+    subtitle_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    name_para = info_cell.add_paragraph(athlete_name, style="TitleHero")
+    name_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    strap_line = info_cell.add_paragraph(
+        f"{player_position} · {player_club}",
+        style="Body",
+    )
+    strap_line.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    _set_cell_border(
+        crest_cell,
+        top={"sz": 12, "color": neutral_border_hex},
+        bottom={"sz": 12, "color": neutral_border_hex},
+        left={"sz": 12, "color": neutral_border_hex},
+        right={"sz": 12, "color": neutral_border_hex},
+    )
+    crest_cell.text = ""
+    crest_para = crest_cell.paragraphs[0]
+    crest_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    if logo_stream is not None:
+        logo_stream.seek(0)
+        crest_para.add_run().add_picture(logo_stream, width=Cm(hero_right_cm - 1.0))
+    else:
+        crest_run = crest_para.add_run("CLUB\nCREST")
+        crest_run.font.size = Pt(9)
+        crest_run.font.bold = True
+        crest_run.font.color.rgb = muted_text
 
     doc.add_paragraph("")
 
@@ -1691,7 +1648,6 @@ def build_player_report_docx(
         ("Competition level", competition_level),
         ("Report date", report_date),
         ("Sample size", str(sample_size)),
-        ("Insights scope", "Percentiles use the complete dataset"),
     ]
 
     info_rows = math.ceil(len(info_items) / 2)
@@ -1723,31 +1679,11 @@ def build_player_report_docx(
         value_para = cell.add_paragraph(str(value_text), style="KPI")
         value_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
-    doc.add_paragraph("")
-
-    notes_block = doc.add_table(rows=1, cols=1)
-    notes_block.autofit = False
-    notes_cell = notes_block.rows[0].cells[0]
-    _set_cell_border(
-        notes_cell,
-        top={"sz": 12, "color": neutral_border_hex},
-        bottom={"sz": 12, "color": neutral_border_hex},
-        left={"sz": 12, "color": neutral_border_hex},
-        right={"sz": 12, "color": neutral_border_hex},
+    scope_note = doc.add_paragraph(
+        "Insights reference the complete dataset, extending beyond the radar metrics for context.",
+        style="Note",
     )
-    _set_cell_margins(notes_cell, top=160, bottom=160, start=200, end=200)
-    notes_cell.text = ""
-    notes_band = notes_cell.paragraphs[0]
-    notes_band.text = " "
-    notes_band.paragraph_format.space_after = Pt(6)
-    _shade_paragraph(notes_band, accent_hex)
-    notes_title_para = notes_cell.add_paragraph("Editable notes", style="H2")
-    notes_title_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    notes_body = notes_cell.add_paragraph(
-        "Add tactical context, coaching directives, or presentation notes here before exporting to Canva.",
-        style="Body",
-    )
-    notes_body.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    scope_note.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
     doc.add_paragraph("")
 
