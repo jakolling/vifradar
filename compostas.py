@@ -2,14 +2,21 @@ from __future__ import annotations
 
 import io
 import math
+import re
 import numpy as np
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
-from matplotlib.patches import Patch
+from matplotlib.gridspec import GridSpec
 from matplotlib.ticker import FuncFormatter, MaxNLocator
 from mplsoccer import Radar
+from docx import Document
+from docx.enum.section import WD_ORIENTATION
+from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.shared import Inches, Pt, RGBColor, Mm
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
 
 from datetime import datetime, date
@@ -225,6 +232,12 @@ def _ensure_cols(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
         if c not in df.columns:
             df[c] = np.nan
     return df
+
+
+def _slugify_filename(text: str) -> str:
+    slug = re.sub(r"[^0-9A-Za-z_-]+", "_", (text or "")).strip("_")
+    slug = slug.lower()
+    return slug[:60] or "relatorio"
 
 def _safe_s(df: pd.DataFrame, col: str) -> pd.Series:
     return df[col].astype(float).fillna(0) if col in df.columns else pd.Series(0.0, index=df.index)
@@ -635,6 +648,45 @@ def _metric_rank_info(dfin: pd.DataFrame, metric: str, player_name: str):
     return {"rank": rk, "total": total, "value": val, "norm": norm, "ascending": ascending}
 
 
+def _metric_percentile_info(dfin: pd.DataFrame, metric: str, player_name: str):
+    if metric not in dfin.columns:
+        return {"percentile": np.nan, "total": 0, "value": np.nan}
+
+    s = pd.to_numeric(dfin[metric], errors="coerce")
+    mask = s.notna()
+    total = int(mask.sum())
+    if total == 0:
+        return {"percentile": np.nan, "total": 0, "value": np.nan}
+
+    df_valid = dfin.loc[mask]
+    if "Player" not in df_valid.columns:
+        return {"percentile": np.nan, "total": total, "value": np.nan}
+
+    player_idx = df_valid.index[df_valid["Player"] == player_name]
+    if player_idx.empty:
+        return {"percentile": np.nan, "total": total, "value": np.nan}
+
+    idx = player_idx[0]
+    val = float(s.loc[idx]) if idx in s.index and pd.notna(s.loc[idx]) else np.nan
+
+    ascending = metric in NEGATE_METRICS
+    if total <= 1:
+        pct = 100.0
+    else:
+        ranks = s[mask].rank(ascending=ascending, method="average")
+        if idx in ranks.index and not np.isnan(ranks.loc[idx]):
+            pct = 100.0 * (total - ranks.loc[idx]) / (total - 1)
+        else:
+            pct = np.nan
+
+    if pd.isna(pct):
+        pct_val = np.nan
+    else:
+        pct_val = float(np.clip(pct, 0.0, 100.0))
+
+    return {"percentile": pct_val, "total": total, "value": val}
+
+
 def _format_metric_value(metric: str, value: float | None) -> str:
     if value is None or not np.isfinite(value):
         return "—"
@@ -807,15 +859,6 @@ def _draw_metric_bar_axis(ax, metric: str, stats: dict, player_infos: list[dict]
     for spine in ax.spines.values():
         spine.set_visible(False)
 
-
-def _color_with_alpha(color: str, alpha_hex: str) -> str:
-    if isinstance(color, str) and color.startswith("#"):
-        if len(color) == 7:
-            return color + alpha_hex
-        if len(color) == 9:
-            return color[:7] + alpha_hex
-    return color
-
 def render_metric_rank_bars(dfin: pd.DataFrame, player_a: str, metrics: list[str], player_b: str | None = None):
     if not metrics:
         return
@@ -848,10 +891,23 @@ def render_metric_rank_bars(dfin: pd.DataFrame, player_a: str, metrics: list[str
     if player_b:
         _render_for(player_b, "Jogador B")
 
-# ======= Build a single PNG that includes Radar + Ranking Bars =======
-def make_radar_bars_png(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
-                        color_a: str, color_b: str = "#E76F51") -> io.BytesIO:
-    metrics = (metrics or [])[:16]
+# ======= Build a single PNG that includes Radar + Ranking/Percentile Bars =======
+def make_radar_bars_png(
+    df: pd.DataFrame,
+    player_a: str,
+    player_b: str | None,
+    metrics: list[str],
+    color_a: str,
+    color_b: str = "#E76F51",
+    bar_mode: str = "rank",
+) -> io.BytesIO:
+    metrics = [m for m in (metrics or []) if m in df.columns][:16]
+    if not metrics:
+        raise ValueError("É necessário informar métricas válidas para gerar o radar.")
+
+    bar_mode = (bar_mode or "rank").lower()
+    if bar_mode not in {"rank", "percentile"}:
+        raise ValueError("bar_mode deve ser 'rank' ou 'percentile'.")
 
     lowers, uppers = _bounds_from_df(df, metrics)
     radar = Radar(metrics, lowers, uppers, num_rings=4)
@@ -870,8 +926,15 @@ def make_radar_bars_png(df: pd.DataFrame, player_a: str, player_b: str | None, m
     bar_blocks = 1 + (1 if player_b else 0)
     total_bar_rows = rows_per_player * bar_blocks
 
-    fig = plt.figure(figsize=(11, 8 + total_bar_rows * 0.9))
-    gs = GridSpec(nrows=2 + total_bar_rows, ncols=3, figure=fig)
+    base_height = 10.2
+    fig = plt.figure(figsize=(8.3, base_height + total_bar_rows * 0.45))
+    height_ratios = [3.6, 3.2] + [0.55] * total_bar_rows if total_bar_rows else [3.6, 3.2]
+    gs = GridSpec(
+        nrows=2 + total_bar_rows,
+        ncols=3,
+        figure=fig,
+        height_ratios=height_ratios,
+    )
 
     # Radar spans first 2 rows
     ax_radar = fig.add_subplot(gs[0:2, :])
@@ -891,22 +954,43 @@ def make_radar_bars_png(df: pd.DataFrame, player_a: str, player_b: str | None, m
     title = title_a if row_b is None else f"{title_a} vs {_player_label(row_b)}"
     ax_radar.set_title(title, fontsize=20, weight="bold", pad=18)
 
+    scale_max = 100.0 if bar_mode == "percentile" else 1.0
+    xticks = [0, 25, 50, 75, 100] if bar_mode == "percentile" else [0, 0.5, 1]
+    xticklabels = ["0%", "25%", "50%", "75%", "100%"] if bar_mode == "percentile" else ["0%", "50%", "100%"]
+
     # Bar blocks (player A then optional player B)
     def _draw_bar_block(start_row: int, player_name: str):
         for i, m in enumerate(metrics):
             r = start_row + (i // cols_per_row)
             c = i % cols_per_row
             ax = fig.add_subplot(gs[2 + r, c])
-            info = _metric_rank_info(df, m, player_name)
-            rk, tot, norm = info["rank"], info["total"], info["norm"]
-            label = f"{m} — {rk}/{tot}" if rk is not None else f"{m} — n/a"
-            ax.barh([0], [norm])
-            ax.set_xlim(0, 1)
+
+            if bar_mode == "percentile":
+                info = _metric_percentile_info(df, m, player_name)
+                pct = info.get("percentile")
+                bar_value = float(np.clip(pct, 0.0, 100.0)) if pd.notna(pct) else 0.0
+                value_note = _format_metric_value(m, info.get("value"))
+                value_suffix = f" ({value_note})" if value_note != "—" else ""
+                label = f"{m} — {bar_value:.0f} pct{value_suffix}" if pd.notna(pct) else f"{m} — n/a{value_suffix}"
+            else:
+                info = _metric_rank_info(df, m, player_name)
+                norm = info.get("norm")
+                bar_value = float(np.clip(norm, 0.0, 1.0)) if norm is not None else 0.0
+                value_note = _format_metric_value(m, info.get("value"))
+                value_suffix = f" ({value_note})" if value_note != "—" else ""
+                rk, tot = info.get("rank"), info.get("total")
+                label = f"{m} — {rk}/{tot}{value_suffix}" if rk is not None else f"{m} — n/a{value_suffix}"
+
+                # Converte para escala de exibição
+                bar_value *= scale_max
+
+            ax.barh([0], [bar_value], color=color_a if player_name == player_a else color_b)
+            ax.set_xlim(0, scale_max)
             ax.set_yticks([])
-            ax.set_xticks([0, 0.5, 1])
-            ax.set_xticklabels(["0%","50%","100%"], fontsize=7)
+            ax.set_xticks(xticks)
+            ax.set_xticklabels(xticklabels, fontsize=7)
             ax.set_title(label, fontsize=9, pad=2)
-            for spine in ["top","right","left"]:
+            for spine in ["top", "right", "left"]:
                 ax.spines[spine].set_visible(False)
 
     _draw_bar_block(start_row=0, player_name=player_a)
@@ -914,90 +998,323 @@ def make_radar_bars_png(df: pd.DataFrame, player_a: str, player_b: str | None, m
         _draw_bar_block(start_row=rows_per_player, player_name=player_b)
 
     buf = io.BytesIO()
-    fig.tight_layout()
+    fig.tight_layout(pad=1.0)
     fig.savefig(buf, format="png", dpi=220, bbox_inches="tight")
     plt.close(fig)
     buf.seek(0)
     return buf
 
 
-# ======= Build an A4 PDF (Radar 3/4 + Bars 1/4) =======
-def make_radar_bars_pdf_a4(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
-                           color_a: str, color_b: str = "#E76F51") -> io.BytesIO:
-    metrics = (metrics or [])[:16]
-    players = [player_a] + ([player_b] if player_b else [])
-    colors = [color_a] + ([color_b] if player_b else [])
+def build_player_report_docx(
+    df: pd.DataFrame,
+    player_name: str,
+    metrics: list[str],
+    color_a: str,
+    color_b: str = "#E76F51",
+    player_photo: bytes | io.BytesIO | None = None,
+    team_logo: bytes | io.BytesIO | None = None,
+) -> io.BytesIO:
+    if "Player" not in df.columns:
+        raise ValueError("DataFrame must contain the 'Player' column.")
 
-    lowers, uppers = _bounds_from_df(df, metrics)
-    radar = Radar(metrics, lowers, uppers, num_rings=4)
+    metrics = [m for m in (metrics or []) if m in df.columns][:16]
+    if len(metrics) < 3:
+        raise ValueError("Please select at least three valid metrics for the DOCX report.")
 
-    row_a = df[df["Player"] == player_a].iloc[0]
-    v_a = _values_for_player(row_a, metrics)
+    player_rows = df[df["Player"] == player_name]
+    if player_rows.empty:
+        raise ValueError(f"Player '{player_name}' was not found in the dataset.")
 
-    v_b = None
-    title_a = _player_label(row_a)
-    age_a = _player_age(row_a)
-    if age_a is not None:
-        title_a = f"{title_a} ({age_a})"
-    title = title_a
-    if player_b:
-        row_b = df[df["Player"] == player_b].iloc[0]
-        v_b = _values_for_player(row_b, metrics)
-        title_b = _player_label(row_b)
-        age_b = _player_age(row_b)
-        if age_b is not None:
-            title_b = f"{title_b} ({age_b})"
-        title = f"{title_a} vs {title_b}"
+    row = player_rows.iloc[0]
 
-    fig = plt.figure(figsize=(8.27, 11.69))
-    gs_main = GridSpec(nrows=2, ncols=1, height_ratios=[2.5, 1.4], figure=fig)
+    def _to_stream(data: bytes | io.BytesIO | None) -> io.BytesIO | None:
+        if data is None:
+            return None
+        if isinstance(data, io.BytesIO):
+            data.seek(0)
+            return data
+        if isinstance(data, (bytes, bytearray)):
+            return io.BytesIO(data)
+        if hasattr(data, "read"):
+            current_pos = data.tell() if hasattr(data, "tell") else None
+            content = data.read()
+            if current_pos is not None:
+                data.seek(current_pos)
+            return io.BytesIO(content)
+        raise TypeError("Images must be provided as bytes or in-memory files (BytesIO).")
 
-    ax_radar = fig.add_subplot(gs_main[0, 0])
-    ax_radar.set_facecolor("#f8fafc")
-    radar.setup_axis(ax=ax_radar)
-    try:
-        radar.draw_circles(ax=ax_radar, facecolor="#f8fafc", edgecolor="#cbd5e1", alpha=0.35)
-        radar.spoke(ax=ax_radar, color="#cbd5e1", linestyle="--", alpha=0.25)
-    except Exception:
-        pass
+    photo_stream = _to_stream(player_photo)
+    logo_stream = _to_stream(team_logo)
 
-    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": _color_with_alpha(color_a, "44"), "edgecolor": color_a, "linewidth": 2})
-    if v_b is not None:
-        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": _color_with_alpha(color_b, "44"), "edgecolor": color_b, "linewidth": 2})
-    radar.draw_range_labels(ax=ax_radar, fontsize=9)
-    radar.draw_param_labels(ax=ax_radar, fontsize=10)
-    ax_radar.set_title(title, fontsize=20, weight="bold", pad=18)
+    accent_color = "1F3C88"
+    neutral_bg = "F2F4F8"
+    doc = Document()
 
-    legend_handles = [Patch(facecolor=color_a, edgecolor="none", alpha=0.85, label=player_a)]
-    if player_b:
-        legend_handles.append(Patch(facecolor=color_b, edgecolor="none", alpha=0.85, label=player_b))
-    if legend_handles:
-        ax_radar.legend(handles=legend_handles, loc="upper left", bbox_to_anchor=(0.02, 0.98), frameon=False)
+    def _get_style(name: str):
+        try:
+            return doc.styles[name]
+        except KeyError:
+            return None
 
-    cols_per_row = 2 if len(metrics) > 1 else 1
-    total_rows = max(1, math.ceil(len(metrics) / cols_per_row))
-    sub_gs = GridSpecFromSubplotSpec(
-        nrows=total_rows,
-        ncols=cols_per_row,
-        subplot_spec=gs_main[1, 0],
-        wspace=0.28,
-        hspace=0.35,
+    base_style = _get_style("Normal")
+    if base_style is not None:
+        base_style.font.name = "Calibri"
+        base_style.font.size = Pt(10.5)
+    for heading_name in ["Heading 1", "Heading 2", "Heading 3"]:
+        heading = _get_style(heading_name)
+        if heading is not None:
+            heading.font.name = "Calibri"
+
+    section = doc.sections[-1]
+    section.orientation = WD_ORIENTATION.PORTRAIT
+    section.page_width = Mm(210)
+    section.page_height = Mm(297)
+    margin = Inches(0.6)
+    section.left_margin = section.right_margin = margin
+    section.top_margin = section.bottom_margin = margin
+    section.header_distance = Inches(0.3)
+    section.footer_distance = Inches(0.4)
+
+    def _apply_cell_shading(cell, fill: str):
+        tc_pr = cell._tc.get_or_add_tcPr()
+        shd = tc_pr.find(qn("w:shd"))
+        if shd is None:
+            shd = OxmlElement("w:shd")
+            tc_pr.append(shd)
+        shd.set(qn("w:val"), "clear")
+        shd.set(qn("w:color"), "auto")
+        shd.set(qn("w:fill"), fill)
+
+    placeholder_color = RGBColor(226, 232, 240)
+
+    header = section.header
+    header.is_linked_to_previous = False
+    while header.paragraphs:
+        p = header.paragraphs[0]._p
+        p.getparent().remove(p)
+
+    header_width = section.page_width - section.left_margin - section.right_margin
+    header_table = header.add_table(rows=1, cols=3, width=header_width)
+    header_table.autofit = False
+    header_table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    for col, width in zip(header_table.columns, [Inches(1.8), Inches(4.5), Inches(1.8)]):
+        col.width = width
+
+    photo_cell, headline_cell, logo_cell = header_table.rows[0].cells
+    for cell in (photo_cell, headline_cell, logo_cell):
+        _apply_cell_shading(cell, accent_color)
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.TOP
+        if cell.paragraphs:
+            cell.paragraphs[0].paragraph_format.space_after = Pt(0)
+
+    def _render_header_image(paragraph, stream: io.BytesIO | None, placeholder: str, width: float, alignment) -> None:
+        paragraph.alignment = alignment
+        if stream is not None:
+            stream.seek(0)
+            paragraph.add_run().add_picture(stream, width=Inches(width))
+        else:
+            run = paragraph.add_run(placeholder)
+            run.bold = True
+            run.font.size = Pt(9)
+            run.font.color.rgb = placeholder_color
+
+    photo_paragraph = photo_cell.paragraphs[0]
+    _render_header_image(photo_paragraph, photo_stream, "PLAYER PHOTO", width=1.55, alignment=WD_ALIGN_PARAGRAPH.LEFT)
+
+    headline_paragraph = headline_cell.paragraphs[0]
+    headline_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    headline_run = headline_paragraph.add_run(f"{player_name} — Performance Report")
+    headline_run.bold = True
+    headline_run.font.size = Pt(20)
+    headline_run.font.color.rgb = RGBColor(255, 255, 255)
+
+    subtitle_paragraph = headline_cell.add_paragraph("Radar and percentile summary of selected metrics")
+    subtitle_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    if subtitle_paragraph.runs:
+        subtitle_paragraph.runs[0].font.size = Pt(11)
+        subtitle_paragraph.runs[0].font.color.rgb = placeholder_color
+
+    date_paragraph = logo_cell.paragraphs[0]
+    date_paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    date_run = date_paragraph.add_run(datetime.now().strftime("%B %d, %Y"))
+    date_run.bold = True
+    date_run.font.size = Pt(11)
+    date_run.font.color.rgb = placeholder_color
+
+    sample_paragraph = logo_cell.add_paragraph(f"Sample size: {df.shape[0]} players")
+    sample_paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    if sample_paragraph.runs:
+        sample_paragraph.runs[0].font.size = Pt(9)
+        sample_paragraph.runs[0].font.color.rgb = placeholder_color
+
+    crest_paragraph = logo_cell.add_paragraph()
+    crest_paragraph.paragraph_format.space_before = Pt(4)
+    _render_header_image(crest_paragraph, logo_stream, "CLUB CREST", width=1.35, alignment=WD_ALIGN_PARAGRAPH.RIGHT)
+
+    footer = section.footer
+    footer.is_linked_to_previous = False
+    while footer.paragraphs:
+        p = footer.paragraphs[0]._p
+        p.getparent().remove(p)
+
+    footer_paragraph = footer.add_paragraph(
+        "Confidential – This report contains proprietary information for authorized recipients only."
+        " Do not copy, share, or distribute without written permission."
     )
+    footer_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    if footer_paragraph.runs:
+        footer_paragraph.runs[0].font.size = Pt(8.5)
+        footer_paragraph.runs[0].font.color.rgb = RGBColor(110, 117, 130)
 
-    for i, metric in enumerate(metrics):
-        r = i // cols_per_row
-        c = i % cols_per_row
-        ax = fig.add_subplot(sub_gs[r, c])
-        stats, player_infos = _prepare_metric_bar_context(df, metric, players)
-        _draw_metric_bar_axis(ax, metric, stats, player_infos, colors)
+    doc.add_paragraph("")
 
-    buf = io.BytesIO()
-    fig.tight_layout()
-    fig.savefig(buf, format="pdf", bbox_inches="tight", pad_inches=0.2)
-    plt.close(fig)
-    buf.seek(0)
-    return buf
+    profile_card = doc.add_table(rows=1, cols=1)
+    profile_cell = profile_card.rows[0].cells[0]
+    _apply_cell_shading(profile_cell, neutral_bg)
+    profile_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    name_paragraph = profile_cell.paragraphs[0]
+    name_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    name_run = name_paragraph.add_run(player_name)
+    name_run.bold = True
+    name_run.font.size = Pt(20)
 
+    def _clean(value):
+        if value is None:
+            return None
+        if isinstance(value, str):
+            value = value.strip()
+            return value if value else None
+        if pd.isna(value):
+            return None
+        return value
+
+    team = _clean(row.get("Team"))
+    position = _clean(row.get("Position"))
+    age = _player_age(row)
+    minutes = row.get("Minutes played") if "Minutes played" in row.index else row.get("Minutes")
+    if pd.notna(minutes):
+        try:
+            minutes = int(float(minutes))
+        except Exception:
+            minutes = _clean(minutes)
+    else:
+        minutes = None
+
+    info_lines: list[str] = []
+    if team:
+        info_lines.append(f"Club: {team}")
+    if position:
+        info_lines.append(f"Position: {position}")
+    if age:
+        info_lines.append(f"Age: {age}")
+    if minutes is not None:
+        info_lines.append(f"Minutes played: {minutes}")
+    info_lines.append("Competition level: {0}".format(_clean(row.get("League")) or "—"))
+
+    for line in info_lines:
+        p = profile_cell.add_paragraph(line)
+        p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        if p.runs:
+            p.runs[0].font.size = Pt(11)
+
+    doc.add_paragraph("")
+
+    chart_title = doc.add_paragraph("Visual analysis")
+    chart_title.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    if chart_title.runs:
+        chart_title.runs[0].bold = True
+
+    radar_card = doc.add_table(rows=1, cols=1)
+    radar_card.autofit = True
+    radar_cell = radar_card.rows[0].cells[0]
+    _apply_cell_shading(radar_cell, neutral_bg)
+    radar_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    radar_cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    radar_png = make_radar_bars_png(
+        df,
+        player_a=player_name,
+        player_b=None,
+        metrics=metrics,
+        color_a=color_a,
+        color_b=color_b,
+        bar_mode="percentile",
+    )
+    pic_run = radar_cell.paragraphs[0].add_run()
+    pic_run.add_picture(radar_png, width=Inches(6.9))
+
+    note = doc.add_paragraph(
+        "Percentiles calculated on the loaded dataset (negative-impact metrics are reversed automatically)."
+    )
+    note.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    if note.runs:
+        note.runs[0].font.size = Pt(9)
+        note.runs[0].italic = True
+
+    doc.add_paragraph("")
+
+    insights_header = doc.add_paragraph("Quick insights")
+    insights_header.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    if insights_header.runs:
+        insights_header.runs[0].bold = True
+
+    insight_table = doc.add_table(rows=1, cols=2)
+    insight_table.autofit = True
+    for cell in insight_table.rows[0].cells:
+        _apply_cell_shading(cell, neutral_bg)
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.TOP
+
+    strengths_cell, dev_cell = insight_table.rows[0].cells
+
+    strengths_cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.LEFT
+    strengths_title = strengths_cell.paragraphs[0].add_run("Standouts (≥ 70th percentile)")
+    strengths_title.bold = True
+
+    dev_cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.LEFT
+    dev_title = dev_cell.paragraphs[0].add_run("Development areas (≤ 40th percentile)")
+    dev_title.bold = True
+
+    metric_percentiles: list[tuple[str, float, float | None]] = []
+    for metric in metrics:
+        info = _metric_percentile_info(df, metric, player_name)
+        pct_value = info.get("percentile")
+        if pd.notna(pct_value):
+            metric_percentiles.append((metric, float(pct_value), info.get("value")))
+
+    strengths = sorted(
+        [m for m in metric_percentiles if m[1] >= 70.0],
+        key=lambda x: x[1],
+        reverse=True,
+    )[:5]
+    devs = sorted(
+        [m for m in metric_percentiles if m[1] <= 40.0],
+        key=lambda x: x[1],
+    )[:5]
+
+    def _render_list(cell, items):
+        if not items:
+            placeholder = cell.add_paragraph("No items to highlight yet.")
+            placeholder.paragraph_format.space_before = Pt(4)
+            if placeholder.runs:
+                placeholder.runs[0].font.size = Pt(10)
+            return
+        for metric_name, pct_value, metric_value in items:
+            bullet = cell.add_paragraph(style="List Bullet")
+            bullet.paragraph_format.left_indent = Inches(0.15)
+            bullet.paragraph_format.space_before = Pt(2)
+            suffix = _format_metric_value(metric_name, metric_value)
+            run = bullet.add_run(
+                f"{metric_name}: {pct_value:.0f}th pct ({suffix})"
+            )
+            run.font.size = Pt(10)
+
+    _render_list(strengths_cell, strengths)
+    _render_list(dev_cell, devs)
+
+    output = io.BytesIO()
+    doc.save(output)
+    output.seek(0)
+    return output
 
 # ===================== SIDEBAR — Controls =====================
 st.sidebar.header("⚙️ Settings")
@@ -1485,177 +1802,6 @@ with colA:
     p2 = st.selectbox("Player B (optional)", ["—"] + players)
     color_a = st.color_picker("Color A", "#2A9D8F")
     color_b = st.color_picker("Color B", "#E76F51")
-    # Optional images for header
-    player_photo_up = st.file_uploader("Player photo (PNG/JPG) — optional", type=["png","jpg","jpeg"], key="photo")
-    crest_up = st.file_uploader("Club crest (PNG/JPG) — optional", type=["png","jpg","jpeg"], key="crest")
-    player_photo_bytes = player_photo_up.read() if player_photo_up else None
-    crest_bytes = crest_up.read() if crest_up else None
-
-
-
-# === PRO PDF (definition placed before usage) ===
-def make_radar_bars_pdf_a4_pro(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
-                               color_a: str, color_b: str = "#E76F51",
-                               player_photo_bytes: bytes | None = None,
-                               crest_bytes: bytes | None = None) -> io.BytesIO:
-    """
-    PRO layout (v2):
-      - Cabeçalho com *espaços reservados* (quadrados brancos) para FOTO (esq.) e ESCUDO (dir.).
-      - Radar MAIOR (mais espaço vertical).
-      - Barras MENORES e mais "filamentadas" (altura reduzida).
-      - Saída consolidada em uma única página PDF, com grelha dinâmica para alinhar todas as barras.
-    """
-    import matplotlib.pyplot as plt
-    from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
-    from matplotlib.patches import FancyBboxPatch
-    from PIL import Image
-    import io
-    from datetime import datetime
-
-    metrics = (metrics or [])[:16]
-    players = [player_a] + ([player_b] if player_b else [])
-    colors = [color_a] + ([color_b] if player_b else [])
-
-    # --- Dados dos jogadores
-    row_a = df[df["Player"] == player_a].iloc[0]
-    v_a = _values_for_player(row_a, metrics)
-    title_a = _player_label(row_a)
-    a_age = _player_age(row_a)
-    if a_age is not None:
-        title_a = f"{title_a} ({a_age})"
-
-    v_b = None
-    if player_b:
-        row_b = df[df["Player"] == player_b].iloc[0]
-        v_b = _values_for_player(row_b, metrics)
-        title_b = _player_label(row_b)
-        b_age = _player_age(row_b)
-        if b_age is not None:
-            title_b = f"{title_b} ({b_age})"
-        title = f"{title_a}  vs  {title_b}"
-    else:
-        title = title_a
-
-    lowers, uppers = _bounds_from_df(df, metrics)
-    radar = Radar(metrics, lowers, uppers, num_rings=4)
-
-    cols_per_row = 2 if len(metrics) > 1 else 1
-    total_rows = max(1, math.ceil(len(metrics) / cols_per_row))
-    header_rows = 2
-    radar_rows = 7
-    bar_rows = max(total_rows, 3)
-    total_grid_rows = header_rows + radar_rows + bar_rows
-
-    # --- Figura A4
-    fig = plt.figure(figsize=(8.27, 11.69))
-    gs_page = GridSpec(nrows=total_grid_rows, ncols=12, figure=fig)
-
-    # ======= HEADER =======
-    ax_header = fig.add_subplot(gs_page[0:header_rows, :]); ax_header.axis("off")
-    band = FancyBboxPatch((0.01, 0.01), 0.98, 0.98, boxstyle="round,pad=0.02,rounding_size=0.02",
-                          transform=ax_header.transAxes, linewidth=0, facecolor="#0f172a", alpha=0.98)
-    ax_header.add_patch(band)
-
-    # Slots do cabeçalho
-    ax_photo = fig.add_subplot(gs_page[0:header_rows, 0:2]); ax_photo.axis("off")
-    ax_title = fig.add_subplot(gs_page[0:header_rows, 3:9]); ax_title.axis("off")
-    ax_crest = fig.add_subplot(gs_page[0:header_rows, 10:12]); ax_crest.axis("off")
-
-    # Espaços reservados (quadrados brancos) - sempre renderizados, com leve borda cinza
-
-    # Se imagens forem fornecidas, desenhamos POR CIMA do quadrado branco, centralizadas
-    def _draw_image_center(ax, img_bytes):
-        if not img_bytes:
-            return
-        try:
-            im = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
-            ax.imshow(im, extent=(0.18, 0.82, 0.18, 0.82), zorder=3)
-        except Exception:
-            pass  # não quebra
-
-    _draw_image_center(ax_photo, player_photo_bytes)
-    _draw_image_center(ax_crest, crest_bytes)
-
-    # Título (apenas no centro; nada nos slots de foto/escudo)
-    def _wrap_title(txt: str, max_chars_line: int = 36):
-        # simple wrap to two lines max
-        txt = str(txt or "").strip()
-        if len(txt) <= max_chars_line:
-            return [txt], 16
-        # split at spaces
-        words = txt.split()
-        line1 = []
-        while words and len(" ".join(line1 + [words[0]])) <= max_chars_line:
-            line1.append(words.pop(0))
-        line2 = " ".join(words)
-        # reduce fontsize for long titles
-        return [" ".join(line1), line2], 14
-
-    _lines, _fs = _wrap_title(title)
-    if len(_lines) == 1:
-        ax_title.text(0.5, 0.62, _lines[0], ha="center", va="center",
-                      fontsize=_fs, weight="bold", color="white", transform=ax_title.transAxes)
-    else:
-        ax_title.text(0.5, 0.70, _lines[0], ha="center", va="center",
-                      fontsize=_fs, weight="bold", color="white", transform=ax_title.transAxes)
-        ax_title.text(0.5, 0.50, _lines[1], ha="center", va="center",
-                      fontsize=_fs, weight="bold", color="white", transform=ax_title.transAxes)
-    ax_title.text(0.5, 0.28, f"Relatório gerado em {datetime.now().strftime('%d %b %Y')}",
-                  ha="center", va="center", fontsize=9, color="#cbd5e1", transform=ax_title.transAxes)
-
-    # ======= RADAR (maior) =======
-    radar_start = header_rows
-    radar_end = header_rows + radar_rows
-    ax_radar = fig.add_subplot(gs_page[radar_start:radar_end, 0:12])  # eixo cartesiano para mplsoccer.Radar
-    radar.setup_axis(ax=ax_radar)
-    # fundo leve
-    ax_radar.set_facecolor("#f8fafc")
-    # anéis e parâmetros
-    try:
-        radar.draw_circles(ax=ax_radar, facecolor="#f8fafc", edgecolor="#cbd5e1", alpha=0.35)
-    except Exception:
-        pass
-    try:
-        radar.spoke(ax=ax_radar, color="#cbd5e1", linestyle="--", alpha=0.25)
-    except Exception:
-        pass
-    radar.draw_radar(v_a, ax=ax_radar, kwargs_radar={"facecolor": _color_with_alpha(color_a, "55"), "edgecolor": color_a, "linewidth": 2})
-    if v_b is not None:
-        radar.draw_radar(v_b, ax=ax_radar, kwargs_radar={"facecolor": _color_with_alpha(color_b, "55"), "edgecolor": color_b, "linewidth": 2})
-    radar.draw_range_labels(ax=ax_radar, fontsize=9)
-    radar.draw_param_labels(ax=ax_radar, fontsize=10)
-
-    legend_handles = [Patch(facecolor=color_a, edgecolor="none", alpha=0.85, label=player_a)]
-    if player_b:
-        legend_handles.append(Patch(facecolor=color_b, edgecolor="none", alpha=0.85, label=player_b))
-    if legend_handles:
-        ax_radar.legend(handles=legend_handles, loc="upper left", bbox_to_anchor=(0.01, 0.98), frameon=False)
-
-    # ======= BARRAS (menores/achatadas) =======
-    bars_start = radar_end
-    bars_end = total_grid_rows
-    sub_gs = GridSpecFromSubplotSpec(
-        nrows=total_rows,
-        ncols=cols_per_row,
-        subplot_spec=gs_page[bars_start:bars_end, 0:12],
-        wspace=0.35,
-        hspace=0.28,
-    )
-    for i, metric in enumerate(metrics):
-        r = i // cols_per_row
-        c = i % cols_per_row
-        ax = fig.add_subplot(sub_gs[r, c])
-        stats, player_infos = _prepare_metric_bar_context(df, metric, players)
-        _draw_metric_bar_axis(ax, metric, stats, player_infos, colors)
-
-    buf = io.BytesIO()
-    fig.savefig(buf, format="pdf", bbox_inches="tight", dpi=300)
-    plt.close(fig)
-
-    buf.seek(0)
-    return buf
-
-
 # Download button for combined PNG
 if p1 and metrics_sel:
     png_buf = make_radar_bars_png(
@@ -1672,25 +1818,6 @@ if p1 and metrics_sel:
         file_name="radar_barras.png",
         mime="image/png",
     )
-
-# Download button for A4 PDF (PRO)
-if p1 and metrics_sel:
-    pdf_buf = make_radar_bars_pdf_a4_pro(
-        df_all,
-        p1,
-        None if p2 == "—" else p2,
-        metrics_sel,
-        color_a,
-        color_b,
-        player_photo_bytes=player_photo_bytes,
-        crest_bytes=crest_bytes,
-    )
-    st.download_button(
-        "⬇️ Download Radar + Barras (PDF A4)",
-        data=pdf_buf.getvalue(),
-        file_name="radar_barras_A4.pdf",
-        mime="application/pdf",
-    )
 with colB:
     if p1 and metrics_sel:
         plot_radar(df_all, p1, None if p2 == "—" else p2, metrics_sel, color_a, color_b)
@@ -1704,6 +1831,48 @@ st.download_button(
     file_name="composite_metrics_base.csv",
     mime="text/csv",
 )
+
+st.markdown("#### Relatório DOCX (Radar + Percentis)")
+col_doc_a, col_doc_b = st.columns(2)
+with col_doc_a:
+    player_photo_upload = st.file_uploader(
+        "Foto do atleta (opcional)",
+        type=["png", "jpg", "jpeg"],
+        key="docx_player_photo",
+        help="Imagem será posicionada no cabeçalho do relatório.",
+    )
+with col_doc_b:
+    team_logo_upload = st.file_uploader(
+        "Escudo do time (opcional)",
+        type=["png", "jpg", "jpeg"],
+        key="docx_team_logo",
+    )
+
+valid_metrics_for_docx = [m for m in metrics_sel if m in df_all.columns] if p1 else []
+if p1 and len(valid_metrics_for_docx) >= 3:
+    try:
+        report_buf = build_player_report_docx(
+            df_all,
+            player_name=p1,
+            metrics=valid_metrics_for_docx,
+            color_a=color_a,
+            color_b=color_b,
+            player_photo=player_photo_upload.getvalue() if player_photo_upload else None,
+            team_logo=team_logo_upload.getvalue() if team_logo_upload else None,
+        )
+        st.download_button(
+            "⬇️ Baixar relatório DOCX",
+            data=report_buf.getvalue(),
+            file_name=f"{_slugify_filename(p1)}_relatorio_radar.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+    except Exception as e:
+        st.error("Não foi possível gerar o relatório DOCX.")
+        st.exception(e)
+elif p1 and metrics_sel:
+    st.info("Selecione pelo menos 3 métricas válidas para gerar o relatório DOCX.")
+else:
+    st.info("Escolha um jogador e as métricas desejadas para habilitar o relatório DOCX.")
 
 
 # --- Revised presets (auto-generated) ---
@@ -2024,7 +2193,3 @@ def export_player_pdf_a4_bars(df: pd.DataFrame, player_name: str,
                 ax.grid(True, axis="x", linewidth=0.3, alpha=0.4)
             pdf.savefig(fig, bbox_inches="tight")
             plt.close(fig)
-
-
-
-# ===== Enhanced A4 PDF with professional header and optional images =====
