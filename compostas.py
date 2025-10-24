@@ -1509,7 +1509,7 @@ def build_player_report_docx(
     hero_row = hero_table.rows[0]
     for cell in hero_row.cells:
         _apply_cell_shading(cell, "F9FAFB")
-        _set_cell_margins(cell, top=140, bottom=140, start=200, end=200)
+        _set_cell_margins(cell, top=80, bottom=90, start=180, end=180)
         cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
     photo_cell, info_cell, crest_cell = hero_row.cells
@@ -1591,7 +1591,7 @@ def build_player_report_docx(
         crest_run.font.bold = True
         crest_run.font.color.rgb = muted_text
 
-    _add_spacer(8)
+    _add_spacer(4)
 
     def _add_section_heading(text: str):
         heading = doc.add_paragraph(text, style="H1")
@@ -1622,36 +1622,34 @@ def build_player_report_docx(
         cell = info_table.rows[row_idx].cells[col_idx]
         _set_cell_border(
             cell,
-            top={"sz": 12, "color": neutral_border_hex},
-            bottom={"sz": 12, "color": neutral_border_hex},
-            left={"sz": 12, "color": neutral_border_hex},
-            right={"sz": 12, "color": neutral_border_hex},
+            top={"sz": 16, "color": accent_hex},
+            bottom={"sz": 10, "color": neutral_border_hex},
+            left={"sz": 10, "color": neutral_border_hex},
+            right={"sz": 10, "color": neutral_border_hex},
         )
-        _set_cell_margins(cell, top=120, bottom=120, start=200, end=200)
+        _set_cell_margins(cell, top=90, bottom=90, start=180, end=180)
         cell.text = ""
         band_para = cell.paragraphs[0]
-        band_para.text = " "
-        band_para.paragraph_format.space_after = Pt(4)
-        _shade_paragraph(band_para, accent_hex)
+        band_para.text = ""
         label_para = cell.add_paragraph(label, style="SmallCaps")
         label_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
         label_para.paragraph_format.space_before = Pt(0)
-        label_para.paragraph_format.space_after = Pt(2)
+        label_para.paragraph_format.space_after = Pt(1)
         value_text = value if value not in (None, "") else "—"
         value_para = cell.add_paragraph(str(value_text), style="KPI")
         value_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
         value_para.paragraph_format.space_before = Pt(0)
-        value_para.paragraph_format.space_after = Pt(4)
+        value_para.paragraph_format.space_after = Pt(3)
 
     scope_note = doc.add_paragraph(
         "Insights reference the complete dataset, extending beyond the radar metrics for context.",
         style="Note",
     )
     scope_note.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    scope_note.paragraph_format.space_before = Pt(6)
-    scope_note.paragraph_format.space_after = Pt(10)
+    scope_note.paragraph_format.space_before = Pt(4)
+    scope_note.paragraph_format.space_after = Pt(8)
 
-    _add_spacer(6)
+    doc.add_page_break()
 
     _add_section_heading("Visual analysis")
 
@@ -1668,13 +1666,13 @@ def build_player_report_docx(
     chart_cell = chart_card.rows[0].cells[0]
     _set_cell_border(
         chart_cell,
-        top={"sz": 12, "color": neutral_border_hex},
-        bottom={"sz": 12, "color": neutral_border_hex},
-        left={"sz": 12, "color": neutral_border_hex},
-        right={"sz": 12, "color": neutral_border_hex},
+        top={"sz": 14, "color": neutral_border_hex},
+        bottom={"sz": 14, "color": neutral_border_hex},
+        left={"sz": 14, "color": neutral_border_hex},
+        right={"sz": 14, "color": neutral_border_hex},
     )
     _apply_cell_shading(chart_cell, "F9FAFB")
-    _set_cell_margins(chart_cell, top=100, bottom=120, start=200, end=200)
+    _set_cell_margins(chart_cell, top=80, bottom=90, start=180, end=180)
     chart_cell.text = ""
     chart_band = chart_cell.add_paragraph(" ")
     chart_band.paragraph_format.space_after = Pt(4)
@@ -1702,12 +1700,12 @@ def build_player_report_docx(
             color_b=color_b or "#9CA3AF",
             bar_mode="percentile",
         )
-        chart_image_para.add_run().add_picture(radar_png, width=Inches(6.5))
+        chart_image_para.add_run().add_picture(radar_png, width=Inches(6.3))
     except Exception:
         fallback = chart_cell.add_paragraph("Radar visualization unavailable.", style="Note")
         fallback.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    _add_spacer(10)
+    doc.add_page_break()
 
     _add_section_heading("Quick insights")
 
@@ -1726,7 +1724,7 @@ def build_player_report_docx(
             left={"sz": 12, "color": neutral_border_hex},
             right={"sz": 12, "color": neutral_border_hex},
         )
-        _set_cell_margins(insight_cell, top=110, bottom=110, start=200, end=200)
+        _set_cell_margins(insight_cell, top=90, bottom=90, start=180, end=180)
 
     standouts_title = standouts_cell.paragraphs[0]
     standouts_title.style = doc.styles["H2"]
@@ -1734,7 +1732,7 @@ def build_player_report_docx(
 
     for metric_label, descriptor in standouts:
         paragraph = standouts_cell.add_paragraph(style="Body")
-        paragraph.paragraph_format.space_before = Pt(4)
+        paragraph.paragraph_format.space_before = Pt(3)
         paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
         emoji_run = paragraph.add_run("✅ ")
         emoji_run.bold = False
@@ -1756,7 +1754,7 @@ def build_player_report_docx(
 
     for metric_label, descriptor in development:
         paragraph = development_cell.add_paragraph(style="Body")
-        paragraph.paragraph_format.space_before = Pt(4)
+        paragraph.paragraph_format.space_before = Pt(3)
         paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
         paragraph.add_run("⚠️ ")
         paragraph.add_run(f"{metric_label}: ")
@@ -1771,7 +1769,7 @@ def build_player_report_docx(
         if value_part:
             paragraph.add_run(f" {value_part}")
 
-    _add_spacer(10)
+    _add_spacer(6)
 
     confidentiality_block = doc.add_table(rows=1, cols=1)
     confidentiality_block.autofit = False
