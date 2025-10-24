@@ -14,7 +14,9 @@ from docx import Document
 from docx.enum.section import WD_ORIENTATION
 from docx.enum.table import WD_ALIGN_VERTICAL
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Inches, Pt
+from docx.shared import Inches, Pt, RGBColor
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
 
 from datetime import datetime, date
@@ -1037,7 +1039,19 @@ def build_player_report_docx(
     photo_stream = _to_stream(player_photo)
     logo_stream = _to_stream(team_logo)
 
+    accent_color = "1F3C88"
+    neutral_bg = "F2F4F8"
     doc = Document()
+
+    base_style = doc.styles.get("Normal")
+    if base_style is not None:
+        base_style.font.name = "Calibri"
+        base_style.font.size = Pt(10.5)
+    for heading_name in ["Heading 1", "Heading 2", "Heading 3"]:
+        heading = doc.styles.get(heading_name)
+        if heading is not None:
+            heading.font.name = "Calibri"
+
     section = doc.sections[-1]
     section.orientation = WD_ORIENTATION.LANDSCAPE
     section.page_width, section.page_height = section.page_height, section.page_width
@@ -1045,16 +1059,54 @@ def build_player_report_docx(
     section.left_margin = section.right_margin = margin
     section.top_margin = section.bottom_margin = margin
 
-    title_paragraph = doc.add_paragraph()
-    title_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    title_run = title_paragraph.add_run("Relatório de Desempenho — Radar & Percentis")
-    title_run.bold = True
-    title_run.font.size = Pt(18)
+    def _apply_cell_shading(cell, fill: str):
+        tc_pr = cell._tc.get_or_add_tcPr()
+        shd = tc_pr.find(qn("w:shd"))
+        if shd is None:
+            shd = OxmlElement("w:shd")
+            tc_pr.append(shd)
+        shd.set(qn("w:val"), "clear")
+        shd.set(qn("w:color"), "auto")
+        shd.set(qn("w:fill"), fill)
 
-    subtitle = doc.add_paragraph(datetime.now().strftime("%d/%m/%Y"))
-    subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    if subtitle.runs:
-        subtitle.runs[0].font.size = Pt(11)
+    banner = doc.add_table(rows=1, cols=2)
+    banner.autofit = False
+    banner.columns[0].width = Inches(8.0)
+    banner.columns[1].width = Inches(3.0)
+    for cell in banner.rows[0].cells:
+        _apply_cell_shading(cell, accent_color)
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+
+    headline_cell, meta_cell = banner.rows[0].cells
+
+    headline_paragraph = headline_cell.paragraphs[0]
+    headline_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    headline_run = headline_paragraph.add_run(f"Relatório de Desempenho — {player_name}")
+    headline_run.bold = True
+    headline_run.font.size = Pt(20)
+    headline_run.font.color.rgb = RGBColor(255, 255, 255)
+
+    subtitle_paragraph = headline_cell.add_paragraph("Radar & Percentis das métricas selecionadas")
+    subtitle_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    if subtitle_paragraph.runs:
+        subtitle_paragraph.runs[0].font.size = Pt(11)
+        subtitle_paragraph.runs[0].font.color.rgb = RGBColor(226, 232, 240)
+
+    meta_cell.text = ""
+    meta_paragraph = meta_cell.paragraphs[0]
+    meta_paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    meta_run = meta_paragraph.add_run(datetime.now().strftime("%d/%m/%Y"))
+    meta_run.bold = True
+    meta_run.font.size = Pt(12)
+    meta_run.font.color.rgb = RGBColor(226, 232, 240)
+
+    meta_paragraph = meta_cell.add_paragraph("Base de comparação: {total}".format(total=df.shape[0]))
+    meta_paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    if meta_paragraph.runs:
+        meta_paragraph.runs[0].font.size = Pt(10)
+        meta_paragraph.runs[0].font.color.rgb = RGBColor(226, 232, 240)
+
+    doc.add_paragraph("")
 
     table = doc.add_table(rows=1, cols=3)
     table.autofit = False
@@ -1071,9 +1123,11 @@ def build_player_report_docx(
             stream.seek(0)
             paragraph.add_run().add_picture(stream, width=Inches(width))
         else:
+            _apply_cell_shading(cell, neutral_bg)
             run = paragraph.add_run(placeholder)
-            run.italic = True
+            run.bold = True
             run.font.size = Pt(10)
+            run.font.color.rgb = RGBColor(80, 88, 99)
 
     _image_or_placeholder(table.cell(0, 0), photo_stream, "Foto do atleta", width=1.9)
     _image_or_placeholder(table.cell(0, 2), logo_stream, "Escudo do time", width=1.6)
@@ -1117,7 +1171,7 @@ def build_player_report_docx(
         info_lines.append(f"Idade: {age}")
     if minutes is not None:
         info_lines.append(f"Minutos: {minutes}")
-    info_lines.append(f"Comparação com {df.shape[0]} jogadores na base")
+    info_lines.append("Nível competitivo: {0}".format(_clean(row.get("League")) or "—"))
 
     for line in info_lines:
         p = middle_cell.add_paragraph(line)
@@ -1127,10 +1181,17 @@ def build_player_report_docx(
 
     doc.add_paragraph("")
 
-    chart_title = doc.add_paragraph("Radar + Percentis das métricas selecionadas")
+    chart_title = doc.add_paragraph("Análise gráfica")
     chart_title.alignment = WD_ALIGN_PARAGRAPH.LEFT
     if chart_title.runs:
         chart_title.runs[0].bold = True
+
+    radar_card = doc.add_table(rows=1, cols=1)
+    radar_card.autofit = True
+    radar_cell = radar_card.rows[0].cells[0]
+    _apply_cell_shading(radar_cell, neutral_bg)
+    radar_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    radar_cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
 
     radar_png = make_radar_bars_png(
         df,
@@ -1141,9 +1202,8 @@ def build_player_report_docx(
         color_b=color_b,
         bar_mode="percentile",
     )
-    pic = doc.add_picture(radar_png, width=Inches(9.0))
-    pic_paragraph = doc.paragraphs[-1]
-    pic_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    pic_run = radar_cell.paragraphs[0].add_run()
+    pic_run.add_picture(radar_png, width=Inches(8.8))
 
     note = doc.add_paragraph(
         "Percentis calculados sobre todo o dataset carregado (métricas negativas invertidas automaticamente)."
@@ -1154,7 +1214,67 @@ def build_player_report_docx(
         note.runs[0].italic = True
 
     doc.add_paragraph("")
-    pct_header = doc.add_paragraph("Resumo numérico dos percentis")
+
+    insights_header = doc.add_paragraph("Insights rápidos")
+    insights_header.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    if insights_header.runs:
+        insights_header.runs[0].bold = True
+
+    insight_table = doc.add_table(rows=1, cols=2)
+    insight_table.autofit = True
+    for cell in insight_table.rows[0].cells:
+        _apply_cell_shading(cell, neutral_bg)
+        cell.vertical_alignment = WD_ALIGN_VERTICAL.TOP
+
+    strengths_cell, dev_cell = insight_table.rows[0].cells
+
+    strengths_cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.LEFT
+    strengths_title = strengths_cell.paragraphs[0].add_run("Destaques (≥ 70º percentil)")
+    strengths_title.bold = True
+
+    dev_cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.LEFT
+    dev_title = dev_cell.paragraphs[0].add_run("Pontos de desenvolvimento (≤ 40º percentil)")
+    dev_title.bold = True
+
+    metric_percentiles: list[tuple[str, float, float | None]] = []
+    for metric in metrics:
+        info = _metric_percentile_info(df, metric, player_name)
+        pct_value = info.get("percentile")
+        if pd.notna(pct_value):
+            metric_percentiles.append((metric, float(pct_value), info.get("value")))
+
+    strengths = sorted(
+        [m for m in metric_percentiles if m[1] >= 70.0],
+        key=lambda x: x[1],
+        reverse=True,
+    )[:5]
+    devs = sorted(
+        [m for m in metric_percentiles if m[1] <= 40.0],
+        key=lambda x: x[1],
+    )[:5]
+
+    def _render_list(cell, items):
+        if not items:
+            placeholder = cell.add_paragraph("Sem destaques suficientes.")
+            placeholder.paragraph_format.space_before = Pt(4)
+            if placeholder.runs:
+                placeholder.runs[0].font.size = Pt(10)
+            return
+        for metric_name, pct_value, metric_value in items:
+            bullet = cell.add_paragraph(style="List Bullet")
+            bullet.paragraph_format.left_indent = Inches(0.15)
+            bullet.paragraph_format.space_before = Pt(2)
+            run = bullet.add_run(
+                f"{metric_name}: {pct_value:.0f}º pct ({_format_metric_value(metric_name, metric_value)})"
+            )
+            run.font.size = Pt(10)
+
+    _render_list(strengths_cell, strengths)
+    _render_list(dev_cell, devs)
+
+    doc.add_paragraph("")
+
+    pct_header = doc.add_paragraph("Tabela detalhada de percentis")
     pct_header.alignment = WD_ALIGN_PARAGRAPH.LEFT
     if pct_header.runs:
         pct_header.runs[0].bold = True
@@ -1169,8 +1289,12 @@ def build_player_report_docx(
     header_titles = ["Métrica", "Percentil", "Valor"]
     for cell, text in zip(header_cells, header_titles):
         cell.text = text
-        for run in cell.paragraphs[0].runs:
+        _apply_cell_shading(cell, accent_color)
+        paragraph = cell.paragraphs[0]
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for run in paragraph.runs:
             run.bold = True
+            run.font.color.rgb = RGBColor(255, 255, 255)
 
     for metric in metrics:
         info = _metric_percentile_info(df, metric, player_name)
