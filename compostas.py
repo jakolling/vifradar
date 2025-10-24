@@ -1093,7 +1093,8 @@ def build_player_report_docx(
         p = header.paragraphs[0]._p
         p.getparent().remove(p)
 
-    header_table = header.add_table(rows=1, cols=3)
+    header_width = section.page_width - section.left_margin - section.right_margin
+    header_table = header.add_table(rows=1, cols=3, width=header_width)
     header_table.autofit = False
     header_table.alignment = WD_TABLE_ALIGNMENT.CENTER
     for col, width in zip(header_table.columns, [Inches(1.8), Inches(4.5), Inches(1.8)]):
