@@ -1615,6 +1615,8 @@ def build_player_report_docx(
     footer_left_paragraph.style = doc.styles["Note"]
     footer_left_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
     footer_left_paragraph.text = ""
+    if prepared_by:
+        footer_left_paragraph.add_run(f"Prepared by {prepared_by}")
 
     footer_center_paragraph = footer_center.paragraphs[0]
     footer_center_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
