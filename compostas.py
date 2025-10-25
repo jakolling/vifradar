@@ -621,22 +621,105 @@ def _values_for_player(row: pd.Series, metrics: list[str]):
         vals.append(float(v) if pd.notna(v) else np.nan)
     return vals
 
-def _player_label(row: pd.Series) -> str:
-    name = str(row.get("Player", ""))
-    team = str(row.get("Team", "")) if "Team" in row.index and pd.notna(row.get("Team")) else ""
-    pos  = str(row.get("Position", "")) if "Position" in row.index and pd.notna(row.get("Position")) else ""
+def _player_label(
+    row: pd.Series,
+    *,
+    age: int | str | None = None,
+    league: str | None = None,
+    season: str | None = None,
+) -> str:
+    def _clean(value):
+        if value is None:
+            return None
+        if isinstance(value, str):
+            text = value.strip()
+            return text or None
+        if pd.isna(value):
+            return None
+        try:
+            return str(int(value)) if float(value).is_integer() else str(value)
+        except Exception:
+            return str(value)
+
+    name = _clean(row.get("Player")) or ""
+    team = _clean(row.get("Team"))
+    pos = _clean(row.get("Position"))
+
     minutes = None
-    for mcol in ["Minutes played","Minutes","minutes","Time played","Minuti","Minutos","Min"]:
+    for mcol in [
+        "Minutes played",
+        "Minutes",
+        "minutes",
+        "Time played",
+        "Minuti",
+        "Minutos",
+        "Min",
+    ]:
         if mcol in row.index and pd.notna(row.get(mcol)):
             try:
                 minutes = int(float(row[mcol]))
             except Exception:
                 minutes = row[mcol]
             break
-    tail = f" — {team}" if team else ""
-    if pos: tail += f" | {pos}"
-    if minutes is not None: tail += f" | {minutes} min"
-    return name + tail
+
+    age_value = age
+    if age_value is None:
+        age_value = _player_age(row)
+    if isinstance(age_value, (int, float)):
+        if isinstance(age_value, float) and math.isnan(age_value):
+            age_value = None
+        else:
+            age_value = int(age_value)
+    age_text = _clean(age_value)
+
+    league_value = _clean(league)
+    if league_value is None:
+        for lcol in [
+            "League",
+            "Competition",
+            "Competition level",
+            "league",
+            "Liga",
+            "Campionato",
+        ]:
+            if lcol in row.index:
+                league_value = _clean(row.get(lcol))
+            if league_value:
+                break
+
+    season_value = _clean(season)
+    if season_value is None:
+        for scol in [
+            "Season",
+            "Season / Year",
+            "Season-Year",
+            "Temporada",
+            "Year",
+            "Ano",
+            "season",
+            "year",
+        ]:
+            if scol in row.index:
+                season_value = _clean(row.get(scol))
+            if season_value:
+                break
+
+    details: list[str] = []
+    if team:
+        details.append(team)
+    if pos:
+        details.append(pos)
+    if minutes is not None:
+        details.append(f"{minutes} min")
+    if age_text:
+        details.append(f"Age {age_text}")
+    league_season = " ".join([part for part in [league_value, season_value] if part])
+    if league_season:
+        details.append(league_season)
+
+    if details:
+        return f"{name} — " + " | ".join(details)
+    return name
 
 def plot_radar(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: list[str],
                color_a: str, color_b: str = "#E76F51"):
@@ -958,6 +1041,10 @@ def make_radar_bars_png(
     color_a: str,
     color_b: str = "#E76F51",
     bar_mode: str = "rank",
+    *,
+    player_age: int | str | None = None,
+    league_label: str | None = None,
+    season_label: str | None = None,
 ) -> io.BytesIO:
     metrics = [m for m in (metrics or []) if m in df.columns][:16]
     if not metrics:
@@ -1013,7 +1100,12 @@ def make_radar_bars_png(
     radar.draw_range_labels(ax=ax_radar, fontsize=9)
     radar.draw_param_labels(ax=ax_radar, fontsize=11)
 
-    title_a = _player_label(row_a)
+    title_a = _player_label(
+        row_a,
+        age=player_age,
+        league=league_label,
+        season=season_label,
+    )
     title = title_a if row_b is None else f"{title_a} vs {_player_label(row_b)}"
     ax_radar.set_title(title, fontsize=20, weight="bold", pad=18)
 
@@ -1902,6 +1994,9 @@ def build_player_report_docx(
             color_a=accent_color,
             color_b=color_b or "#9CA3AF",
             bar_mode="percentile",
+            player_age=player_age,
+            league_label=competition_level,
+            season_label=report_date,
         )
         chart_width_in = min(usable_width_in - 0.25, 6.3)
         chart_width_in = max(chart_width_in, 5.5)
