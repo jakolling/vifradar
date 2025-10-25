@@ -1639,13 +1639,6 @@ def build_player_report_docx(
     footer_center_paragraph.add_run(" of ")
     _add_page_field(footer_center_paragraph, "NUMPAGES \\* Arabic")
 
-    footer_center_generated = footer_center.add_paragraph(
-        f"Generated on {generated_on}",
-        style="Note",
-    )
-    footer_center_generated.paragraph_format.space_before = Pt(2)
-    footer_center_generated.paragraph_format.space_after = Pt(0)
-    footer_center_generated.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
     footer_right_paragraph = footer_right.paragraphs[0]
     footer_right_paragraph.style = doc.styles["Note"]
@@ -1868,7 +1861,7 @@ def build_player_report_docx(
 
     _add_spacer(6)
 
-    doc.add_page_break()
+    _add_spacer(6)
 
     def _insight_context(metric_name: str, median_val) -> str:
         if median_val is None or (isinstance(median_val, float) and not math.isfinite(median_val)):
