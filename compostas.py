@@ -1622,6 +1622,13 @@ def build_player_report_docx(
     footer_left_paragraph.style = doc.styles["Note"]
     footer_left_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
     footer_left_paragraph.text = f"Report ID: {REPORT_ID}"
+    footer_left_note = footer_left.add_paragraph(
+        confidentiality_note,
+        style="Note",
+    )
+    footer_left_note.paragraph_format.space_before = Pt(2)
+    footer_left_note.paragraph_format.space_after = Pt(0)
+    footer_left_note.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
     footer_center_paragraph = footer_center.paragraphs[0]
     footer_center_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -1637,6 +1644,13 @@ def build_player_report_docx(
     footer_right_paragraph.style = doc.styles["Note"]
     footer_right_paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     footer_right_paragraph.text = f"Version {REPORT_VERSION}"
+    footer_right_author = footer_right.add_paragraph(
+        f"Prepared by {prepared_by}",
+        style="Note",
+    )
+    footer_right_author.paragraph_format.space_before = Pt(2)
+    footer_right_author.paragraph_format.space_after = Pt(0)
+    footer_right_author.alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
     cover_table = doc.add_table(rows=1, cols=2)
     cover_table.autofit = False
@@ -1847,7 +1861,7 @@ def build_player_report_docx(
 
     _add_spacer(6)
 
-    doc.add_page_break()
+    _add_spacer(6)
 
     def _insight_context(metric_name: str, median_val) -> str:
         if median_val is None or (isinstance(median_val, float) and not math.isfinite(median_val)):
