@@ -28,6 +28,8 @@ REPORT_TITLE = "Performance radar and percentile overview"
 REPORT_SUBTITLE = "Executive report"
 PLAYER_NAME_DEFAULT = "Nassim Ait Mouhou"
 REPORT_DATE_DEFAULT = "October 24, 2025"
+REPORT_AUTHOR = "Vítor Frade"
+REPORT_CONFIDENTIALITY_NOTE = "Confidencial — Uso interno do clube."
 SAMPLE_SIZE_DEFAULT = 486
 PLAYER_CLUB_DEFAULT = "VVV Venlo"
 PLAYER_POSITION_DEFAULT = "LAMF, LW"
@@ -1119,6 +1121,9 @@ def build_player_report_docx(
     report_subtitle: str | None = None,
     report_date: str | None = None,
     sample_size: int | None = None,
+    prepared_by: str | None = None,
+    confidentiality_note: str | None = None,
+    generated_on: str | None = None,
 ) -> io.BytesIO:
     if "Player" not in df.columns:
         raise ValueError("DataFrame must contain the 'Player' column.")
@@ -1180,6 +1185,11 @@ def build_player_report_docx(
     sample_size = sample_size if sample_size is not None else len(df)
     if not sample_size:
         sample_size = SAMPLE_SIZE_DEFAULT
+    default_confidentiality_note = (
+        confidentiality_note or REPORT_CONFIDENTIALITY_NOTE
+    )
+    if generated_on is None:
+        generated_on = datetime.now().strftime("%B %d, %Y")
 
     def _clean(value):
         if value is None:
@@ -1190,6 +1200,9 @@ def build_player_report_docx(
         if pd.isna(value):
             return None
         return value
+
+    confidentiality_note = _clean(default_confidentiality_note) or REPORT_CONFIDENTIALITY_NOTE
+    prepared_by = _clean(prepared_by) or REPORT_AUTHOR
 
     player_club = _clean(row.get("Team")) or PLAYER_CLUB_DEFAULT
     player_position = _clean(row.get("Position")) or PLAYER_POSITION_DEFAULT
@@ -1548,35 +1561,36 @@ def build_player_report_docx(
         - section.right_margin.cm
     )
 
-    header_table = header.add_table(rows=1, cols=2, width=usable_width)
+    header_table = header.add_table(rows=1, cols=1, width=usable_width)
     header_table.autofit = False
-    header_left, header_right = header_table.rows[0].cells
-    header_table.columns[1].width = Cm(1.4)
-    header_table.columns[0].width = Cm(max(usable_width_cm - 1.4, 6.0))
-    _set_cell_margins(header_left, top=40, bottom=40, start=80, end=80)
-    _set_cell_margins(header_right, top=40, bottom=40, start=80, end=80)
+    header_cell = header_table.rows[0].cells[0]
 
-    header_left.text = ""
-    header_title = header_left.paragraphs[0]
+    header_table.columns[0].width = Cm(max(usable_width_cm, 6.0))
+
+    _set_cell_margins(header_cell, top=40, bottom=40, start=80, end=80)
+
+    header_cell.text = ""
+    header_title = header_cell.paragraphs[0]
     header_title.style = doc.styles["SmallCaps"]
     header_title.paragraph_format.space_after = Pt(0)
     header_title.text = primary_title
-    header_subtitle = header_left.add_paragraph(subtitle, style="Tag")
+    header_subtitle = header_cell.add_paragraph(subtitle, style="Tag")
     header_subtitle.paragraph_format.space_before = Pt(0)
     header_subtitle.paragraph_format.space_after = Pt(0)
 
-    header_logo_para = header_right.paragraphs[0]
-    header_logo_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    header_logo_para.paragraph_format.space_after = Pt(0)
-    small_logo_stream = _clone_stream(logo_stream)
-    if small_logo_stream is not None:
-        small_logo_stream.seek(0)
-        header_logo_para.add_run().add_picture(small_logo_stream, width=Cm(1.2))
-    else:
-        logo_placeholder = header_logo_para.add_run("CLUB\nCREST")
-        logo_placeholder.font.size = Pt(7)
-        logo_placeholder.font.bold = True
-        logo_placeholder.font.color.rgb = muted_text
+    header_note = header_cell.add_paragraph(confidentiality_note, style="Note")
+    header_note.paragraph_format.space_before = Pt(4)
+    header_note.paragraph_format.space_after = Pt(0)
+    header_note.alignment = WD_ALIGN_PARAGRAPH.LEFT
+
+    header_meta = header_cell.add_paragraph(style="Tag")
+    header_meta.paragraph_format.space_before = Pt(0)
+    header_meta.paragraph_format.space_after = Pt(0)
+    header_meta.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    header_meta_text = (
+        f"Gerado em {generated_on} · Preparado por {prepared_by}"
+    )
+    header_meta.add_run(header_meta_text)
 
     footer = section.footer
     footer.is_linked_to_previous = False
@@ -1595,6 +1609,13 @@ def build_player_report_docx(
     footer_left_paragraph.style = doc.styles["Note"]
     footer_left_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
     footer_left_paragraph.text = f"Report ID: {REPORT_ID}"
+    footer_left_note = footer_left.add_paragraph(
+        confidentiality_note,
+        style="Note",
+    )
+    footer_left_note.paragraph_format.space_before = Pt(2)
+    footer_left_note.paragraph_format.space_after = Pt(0)
+    footer_left_note.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
     footer_center_paragraph = footer_center.paragraphs[0]
     footer_center_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -1605,10 +1626,25 @@ def build_player_report_docx(
     footer_center_paragraph.add_run(" of ")
     _add_page_field(footer_center_paragraph, "NUMPAGES \\* Arabic")
 
+    footer_center_generated = footer_center.add_paragraph(
+        f"Gerado em {generated_on}",
+        style="Note",
+    )
+    footer_center_generated.paragraph_format.space_before = Pt(2)
+    footer_center_generated.paragraph_format.space_after = Pt(0)
+    footer_center_generated.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
     footer_right_paragraph = footer_right.paragraphs[0]
     footer_right_paragraph.style = doc.styles["Note"]
     footer_right_paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     footer_right_paragraph.text = f"Version {REPORT_VERSION}"
+    footer_right_author = footer_right.add_paragraph(
+        f"Preparado por {prepared_by}",
+        style="Note",
+    )
+    footer_right_author.paragraph_format.space_before = Pt(2)
+    footer_right_author.paragraph_format.space_after = Pt(0)
+    footer_right_author.alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
     cover_table = doc.add_table(rows=1, cols=2)
     cover_table.autofit = False
@@ -1780,48 +1816,9 @@ def build_player_report_docx(
     scope_note.paragraph_format.space_before = Pt(4)
     scope_note.paragraph_format.space_after = Pt(8)
 
-    _add_section_heading("Methodology")
-    methodology_card = doc.add_table(rows=1, cols=1)
-    methodology_card.autofit = False
-    methodology_cell = methodology_card.rows[0].cells[0]
-    _apply_cell_shading(methodology_cell, "F9FAFB")
-    _set_cell_border(
-        methodology_cell,
-        top={"sz": 12, "color": neutral_border_hex},
-        bottom={"sz": 12, "color": neutral_border_hex},
-        left={"sz": 12, "color": neutral_border_hex},
-        right={"sz": 12, "color": neutral_border_hex},
-    )
-    _set_cell_margins(methodology_cell, top=80, bottom=80, start=200, end=200)
-    methodology_cell.text = ""
-    methodology_title = methodology_cell.paragraphs[0]
-    methodology_title.style = doc.styles["SmallCaps"]
-    methodology_title.text = "Cohort methodology"
-    methodology_title.paragraph_format.space_after = Pt(4)
-    methodology_points = [
-        f"• Cohort: {METHODOLOGY_COHORT} players across the latest scouting pool.",
-        f"• Observation window: {METHODOLOGY_WINDOW}.",
-        f"• Metric treatment: {METHODOLOGY_REVERSALS}",
-    ]
-    for point in methodology_points:
-        line = methodology_cell.add_paragraph(point, style="Body")
-        line.paragraph_format.space_before = Pt(2)
-        line.paragraph_format.space_after = Pt(2)
-
-    _add_spacer(10)
-
-    summary_items: list[dict[str, object]] = list(standouts[:3])
-    if len(summary_items) < 3:
-        summary_items.extend(development[: 3 - len(summary_items)])
+    _add_spacer(6)
 
     doc.add_page_break()
-
-    _add_section_heading("Executive summary")
-    summary_intro = doc.add_paragraph(
-        f"Headline signals benchmarked against the full cohort of {sample_size} players.",
-        style="Body",
-    )
-    summary_intro.paragraph_format.space_after = Pt(6)
 
     def _insight_context(metric_name: str, median_val) -> str:
         if median_val is None or (isinstance(median_val, float) and not math.isfinite(median_val)):
@@ -1833,34 +1830,6 @@ def build_player_report_docx(
             except Exception:
                 return ""
         return formatted
-
-    for item in summary_items:
-        metric_label = str(item.get("metric", ""))
-        descriptor = str(item.get("descriptor", ""))
-        bullet = doc.add_paragraph(style="Body")
-        bullet.paragraph_format.space_before = Pt(2)
-        bullet.paragraph_format.space_after = Pt(4)
-        bullet_run = bullet.add_run("• ")
-        bullet_run.bold = True
-        label_run = bullet.add_run(f"{metric_label}: ")
-        label_run.bold = True
-        percent_part = descriptor
-        value_part = ""
-        if "(" in descriptor:
-            percent_part, rest = descriptor.split("(", 1)
-            percent_part = percent_part.strip()
-            value_part = f"({rest}".strip()
-        pct_run = bullet.add_run(percent_part.strip())
-        pct_run.bold = True
-        if value_part:
-            bullet.add_run(f" {value_part}")
-        context_text = _insight_context(metric_label, item.get("median"))
-        if context_text:
-            bullet.add_run(f" — dataset median {context_text}")
-
-    _add_spacer(6)
-
-    doc.add_page_break()
 
     _add_section_heading("Visual analysis")
 
