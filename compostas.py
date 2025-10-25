@@ -1548,60 +1548,22 @@ def build_player_report_docx(
         - section.right_margin.cm
     )
 
-    header_table = header.add_table(rows=1, cols=3, width=usable_width)
+    header_table = header.add_table(rows=1, cols=1, width=usable_width)
     header_table.autofit = False
-    header_left, header_center, header_right = header_table.rows[0].cells
+    header_cell = header_table.rows[0].cells[0]
 
-    crest_width_cm = 1.4
-    photo_width_cm = 1.8
-    text_width_cm = max(usable_width_cm - crest_width_cm - photo_width_cm, 6.0)
+    header_table.columns[0].width = Cm(max(usable_width_cm, 6.0))
 
-    header_table.columns[0].width = Cm(text_width_cm)
-    header_table.columns[1].width = Cm(crest_width_cm)
-    header_table.columns[2].width = Cm(photo_width_cm)
+    _set_cell_margins(header_cell, top=40, bottom=40, start=80, end=80)
 
-    _set_cell_margins(header_left, top=40, bottom=40, start=80, end=80)
-    _set_cell_margins(header_center, top=40, bottom=40, start=40, end=40)
-    _set_cell_margins(header_right, top=40, bottom=40, start=40, end=40)
-
-    header_left.text = ""
-    header_title = header_left.paragraphs[0]
+    header_cell.text = ""
+    header_title = header_cell.paragraphs[0]
     header_title.style = doc.styles["SmallCaps"]
     header_title.paragraph_format.space_after = Pt(0)
     header_title.text = primary_title
-    header_subtitle = header_left.add_paragraph(subtitle, style="Tag")
+    header_subtitle = header_cell.add_paragraph(subtitle, style="Tag")
     header_subtitle.paragraph_format.space_before = Pt(0)
     header_subtitle.paragraph_format.space_after = Pt(0)
-
-    header_center.text = ""
-    header_logo_para = header_center.paragraphs[0]
-    header_logo_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    header_logo_para.paragraph_format.space_after = Pt(0)
-    small_logo_stream = _clone_stream(logo_stream)
-    if small_logo_stream is not None:
-        small_logo_stream.seek(0)
-        logo_width = max(crest_width_cm - 0.2, 0.8)
-        header_logo_para.add_run().add_picture(small_logo_stream, width=Cm(logo_width))
-    else:
-        logo_placeholder = header_logo_para.add_run("CLUB\nCREST")
-        logo_placeholder.font.size = Pt(7)
-        logo_placeholder.font.bold = True
-        logo_placeholder.font.color.rgb = muted_text
-
-    header_right.text = ""
-    header_photo_para = header_right.paragraphs[0]
-    header_photo_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    header_photo_para.paragraph_format.space_after = Pt(0)
-    small_photo_stream = _clone_stream(photo_stream)
-    if small_photo_stream is not None:
-        small_photo_stream.seek(0)
-        photo_width = max(photo_width_cm - 0.3, 1.0)
-        header_photo_para.add_run().add_picture(small_photo_stream, width=Cm(photo_width))
-    else:
-        photo_placeholder = header_photo_para.add_run("PLAYER\nPHOTO")
-        photo_placeholder.font.size = Pt(7)
-        photo_placeholder.font.bold = True
-        photo_placeholder.font.color.rgb = muted_text
 
     footer = section.footer
     footer.is_linked_to_previous = False
