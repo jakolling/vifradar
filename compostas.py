@@ -36,6 +36,11 @@ SAMPLE_SIZE_DEFAULT = 486
 COMPETITION_LEVEL_DEFAULT = "—"
 REPORT_ID = "VIF-PR-2025-10-24"
 REPORT_VERSION = "v1.0"
+A4_WIDTH_MM = 210
+A4_HEIGHT_MM = 297
+PAGE_MARGIN_MM = 20
+HEADER_FOOTER_DISTANCE_MM = 12
+
 METHODOLOGY_COHORT = 435
 METHODOLOGY_WINDOW = "Rolling 18-month window (Aug 2023 – Feb 2025)"
 METHODOLOGY_REVERSALS = "Negative-impact metrics are inverted before percentile ranking."
@@ -1350,6 +1355,16 @@ def build_player_report_docx(
 
     doc = Document()
 
+    def _configure_section(section):
+        section.orientation = WD_ORIENTATION.PORTRAIT
+        section.page_width = Mm(A4_WIDTH_MM)
+        section.page_height = Mm(A4_HEIGHT_MM)
+        margin = Mm(PAGE_MARGIN_MM)
+        section.left_margin = section.right_margin = margin
+        section.top_margin = section.bottom_margin = margin
+        section.header_distance = Mm(HEADER_FOOTER_DISTANCE_MM)
+        section.footer_distance = Mm(HEADER_FOOTER_DISTANCE_MM)
+
     def _ensure_style(name: str, style_type=WD_STYLE_TYPE.PARAGRAPH):
         try:
             return doc.styles[name]
@@ -1421,15 +1436,10 @@ def build_player_report_docx(
     note_style.font.italic = True
     note_style.font.color.rgb = muted_text
 
+    for section in doc.sections:
+        _configure_section(section)
+
     section = doc.sections[-1]
-    section.orientation = WD_ORIENTATION.PORTRAIT
-    section.page_width = Mm(210)
-    section.page_height = Mm(297)
-    margin = Mm(20)
-    section.left_margin = section.right_margin = margin
-    section.top_margin = section.bottom_margin = margin
-    section.header_distance = Mm(12)
-    section.footer_distance = Mm(12)
 
     def _apply_cell_shading(cell, fill: str):
         tc_pr = cell._tc.get_or_add_tcPr()
@@ -1555,6 +1565,11 @@ def build_player_report_docx(
         section.page_width.cm
         - section.left_margin.cm
         - section.right_margin.cm
+    )
+    usable_width_in = (
+        section.page_width.inches
+        - section.left_margin.inches
+        - section.right_margin.inches
     )
 
     header_table = header.add_table(rows=1, cols=1, width=usable_width)
@@ -1915,7 +1930,9 @@ def build_player_report_docx(
             color_b=color_b or "#9CA3AF",
             bar_mode="percentile",
         )
-        chart_image_para.add_run().add_picture(radar_png, width=Inches(6.3))
+        chart_width_in = min(usable_width_in - 0.25, 6.3)
+        chart_width_in = max(chart_width_in, 5.5)
+        chart_image_para.add_run().add_picture(radar_png, width=Inches(chart_width_in))
     except Exception:
         fallback = chart_cell.add_paragraph("Radar visualization unavailable.", style="Note")
         fallback.alignment = WD_ALIGN_PARAGRAPH.CENTER
