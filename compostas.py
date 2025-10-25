@@ -32,7 +32,6 @@ REPORT_CONFIDENTIALITY_NOTE = "Confidential — For internal club use only."
 PLAYER_CLUB_DEFAULT = "VVV Venlo"
 PLAYER_POSITION_DEFAULT = "LAMF, LW"
 PLAYER_AGE_DEFAULT = 21
-REPORT_DATE_DEFAULT = "October 24, 2025"
 SAMPLE_SIZE_DEFAULT = 486
 COMPETITION_LEVEL_DEFAULT = "—"
 REPORT_ID = "VIF-PR-2025-10-24"
@@ -1199,7 +1198,7 @@ def build_player_report_docx(
     confidentiality_note = _clean(default_confidentiality_note) or REPORT_CONFIDENTIALITY_NOTE
     prepared_by = _clean(prepared_by) or REPORT_AUTHOR
     generated_on = _clean(generated_on) or datetime.now().strftime("%B %d, %Y")
-    report_date = _clean(report_date) or generated_on or REPORT_DATE_DEFAULT
+    report_date = _clean(report_date)
 
     player_club = _clean(row.get("Team")) or PLAYER_CLUB_DEFAULT
     player_position = _clean(row.get("Position")) or PLAYER_POSITION_DEFAULT
@@ -1571,19 +1570,21 @@ def build_player_report_docx(
     header_title.style = doc.styles["SmallCaps"]
     header_title.paragraph_format.space_after = Pt(0)
     header_title.text = primary_title
+    header_title.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
     header_subtitle = header_cell.add_paragraph(subtitle, style="Tag")
     header_subtitle.paragraph_format.space_before = Pt(0)
     header_subtitle.paragraph_format.space_after = Pt(0)
+    header_subtitle.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
     header_note = header_cell.add_paragraph(confidentiality_note, style="Note")
     header_note.paragraph_format.space_before = Pt(4)
     header_note.paragraph_format.space_after = Pt(0)
-    header_note.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    header_note.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
     header_meta = header_cell.add_paragraph(style="Tag")
     header_meta.paragraph_format.space_before = Pt(0)
     header_meta.paragraph_format.space_after = Pt(0)
-    header_meta.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    header_meta.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
     header_meta_text = (
         f"Generated on {generated_on} · Prepared by {prepared_by}"
     )
@@ -1763,12 +1764,16 @@ def build_player_report_docx(
 
     _add_section_heading("Player information")
 
+    league_parts = [
+        part for part in (competition_level, report_date) if part and part != "—"
+    ]
+    league_display = " ".join(league_parts) if league_parts else None
+
     info_items = [
         ("Club", player_club),
         ("Position", player_position),
         ("Age", f"{player_age}"),
-        ("Competition level", competition_level),
-        ("Report date", report_date),
+        ("League", league_display),
     ]
 
     info_rows = math.ceil(len(info_items) / 2)
@@ -1844,16 +1849,6 @@ def build_player_report_docx(
     _add_methodology_line("Data treatment & normalization:")
     _add_methodology_line(
         "Missing values are safely handled; per-90 and ratio metrics guard against divide-by-zero. Composite scores are built from z-scores of component stats and then normalized to a 0–100 scale. Metrics where “lower is better” (e.g., cards, conceded/xGA) are inverted so that bigger bars/areas indicate stronger performance.",
-    )
-    comp_label = competition_level if competition_level else "—"
-    _add_methodology_line(
-        f"Competition & year: {comp_label} (competition) · {report_date} (season/year).",
-    )
-    _add_methodology_line(
-        "(Shown in the report as “Competition level” and “Report date”.)",
-        style_name="Note",
-        space_before=0,
-        space_after=6,
     )
 
     _add_spacer(6)
