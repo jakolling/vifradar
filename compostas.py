@@ -33,6 +33,8 @@ PLAYER_CLUB_DEFAULT = "VVV Venlo"
 PLAYER_POSITION_DEFAULT = "LAMF, LW"
 PLAYER_AGE_DEFAULT = 21
 PLAYER_MINUTES_DEFAULT = 772
+REPORT_DATE_DEFAULT = "October 24, 2025"
+SAMPLE_SIZE_DEFAULT = 486
 COMPETITION_LEVEL_DEFAULT = "—"
 REPORT_ID = "VIF-PR-2025-10-24"
 REPORT_VERSION = "v1.0"
@@ -1120,6 +1122,8 @@ def build_player_report_docx(
     prepared_by: str | None = None,
     confidentiality_note: str | None = None,
     generated_on: str | None = None,
+    report_date: str | None = None,
+    minutes_filter: int | None = None,
 ) -> io.BytesIO:
     if "Player" not in df.columns:
         raise ValueError("DataFrame must contain the 'Player' column.")
@@ -1195,6 +1199,8 @@ def build_player_report_docx(
 
     confidentiality_note = _clean(default_confidentiality_note) or REPORT_CONFIDENTIALITY_NOTE
     prepared_by = _clean(prepared_by) or REPORT_AUTHOR
+    generated_on = _clean(generated_on) or datetime.now().strftime("%B %d, %Y")
+    report_date = _clean(report_date) or generated_on or REPORT_DATE_DEFAULT
 
     player_club = _clean(row.get("Team")) or PLAYER_CLUB_DEFAULT
     player_position = _clean(row.get("Position")) or PLAYER_POSITION_DEFAULT
@@ -1210,6 +1216,17 @@ def build_player_report_docx(
     if minutes is None:
         minutes = PLAYER_MINUTES_DEFAULT
     competition_level = _clean(row.get("League")) or COMPETITION_LEVEL_DEFAULT
+    if "Player" in df.columns:
+        sample_size = int(pd.Series(df["Player"]).dropna().nunique())
+    else:
+        sample_size = len(df)
+    if not sample_size:
+        sample_size = SAMPLE_SIZE_DEFAULT
+    minutes_filter_value = minutes_filter if minutes_filter is not None else 0
+    try:
+        minutes_filter_value = int(minutes_filter_value)
+    except Exception:
+        minutes_filter_value = 0
 
     def _descriptor_for_metric(metric_name: str, pct_value: float, raw_value):
         descriptor = f"{pct_value:.0f}th pct"
@@ -1584,6 +1601,12 @@ def build_player_report_docx(
     )
     header_meta.add_run(header_meta_text)
 
+    header_sample = header_cell.add_paragraph(style="Tag")
+    header_sample.paragraph_format.space_before = Pt(0)
+    header_sample.paragraph_format.space_after = Pt(0)
+    header_sample.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    header_sample.add_run(f"Sample size: {sample_size} players")
+
     footer = section.footer
     footer.is_linked_to_previous = False
     while footer.paragraphs:
@@ -1764,6 +1787,8 @@ def build_player_report_docx(
         ("Age", f"{player_age}"),
         ("Minutes played", f"{minutes}"),
         ("Competition level", competition_level),
+        ("Report date", report_date),
+        ("Sample size", f"{sample_size} players"),
     ]
 
     info_rows = math.ceil(len(info_items) / 2)
@@ -1805,6 +1830,58 @@ def build_player_report_docx(
     scope_note.alignment = WD_ALIGN_PARAGRAPH.LEFT
     scope_note.paragraph_format.space_before = Pt(4)
     scope_note.paragraph_format.space_after = Pt(8)
+
+    _add_section_heading("Methodology")
+    methodology_card = doc.add_table(rows=1, cols=1)
+    methodology_card.autofit = False
+    methodology_cell = methodology_card.rows[0].cells[0]
+    _apply_cell_shading(methodology_cell, "F9FAFB")
+    _set_cell_border(
+        methodology_cell,
+        top={"sz": 12, "color": neutral_border_hex},
+        bottom={"sz": 12, "color": neutral_border_hex},
+        left={"sz": 12, "color": neutral_border_hex},
+        right={"sz": 12, "color": neutral_border_hex},
+    )
+    _set_cell_margins(methodology_cell, top=80, bottom=80, start=200, end=200)
+    methodology_cell.text = ""
+    methodology_title = methodology_cell.paragraphs[0]
+    methodology_title.style = doc.styles["SmallCaps"]
+    methodology_title.text = "Methodology"
+    methodology_title.paragraph_format.space_after = Pt(6)
+
+    def _add_methodology_line(text: str, style_name: str = "Body", space_before: float = 2, space_after: float = 2):
+        paragraph = methodology_cell.add_paragraph(text, style=style_name)
+        paragraph.paragraph_format.space_before = Pt(space_before)
+        paragraph.paragraph_format.space_after = Pt(space_after)
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        return paragraph
+
+    _add_methodology_line(f"Players analyzed (sample size): {sample_size} players.")
+    _add_methodology_line(
+        "(Counted after loading the merged dataset; also printed in the report header as “Sample size”.)",
+        style_name="Note",
+        space_before=0,
+        space_after=6,
+    )
+    _add_methodology_line(f"Minutes-played filter: ≥ {minutes_filter_value} minutes.")
+    _add_methodology_line(
+        "Used only to decide who appears in Rankings; percentiles and radar always use the full loaded dataset. Negative-impact metrics are auto-reversed so “higher = better”.",
+    )
+    _add_methodology_line("Data treatment & normalization:")
+    _add_methodology_line(
+        "Missing values are safely handled; per-90 and ratio metrics guard against divide-by-zero. Composite scores are built from z-scores of component stats and then normalized to a 0–100 scale. Metrics where “lower is better” (e.g., cards, conceded/xGA) are inverted so that bigger bars/areas indicate stronger performance.",
+    )
+    comp_label = competition_level if competition_level else "—"
+    _add_methodology_line(
+        f"Competition & year: {comp_label} (competition) · {report_date} (season/year).",
+    )
+    _add_methodology_line(
+        "(Shown in the report as “Competition level” and “Report date”.)",
+        style_name="Note",
+        space_before=0,
+        space_after=6,
+    )
 
     _add_spacer(6)
 
@@ -2526,6 +2603,7 @@ if p1 and len(valid_metrics_for_docx) >= 3:
             color_b=color_b,
             player_photo=player_photo_upload.getvalue() if player_photo_upload else None,
             team_logo=team_logo_upload.getvalue() if team_logo_upload else None,
+            minutes_filter=int(min_minutes),
         )
         st.download_button(
             "⬇️ Baixar relatório DOCX",
