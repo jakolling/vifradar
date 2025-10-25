@@ -1848,6 +1848,8 @@ def build_player_report_docx(
         part for part in (competition_level, report_date) if part and part != "—"
     ]
     league_display = " ".join(league_parts) if league_parts else None
+    league_for_png = league_display or (competition_level if competition_level and competition_level != "—" else None)
+    season_for_png = None if league_display else report_date
 
     info_items = [
         ("Club", player_club),
@@ -1933,7 +1935,7 @@ def build_player_report_docx(
 
     _add_spacer(6)
 
-    doc.add_page_break()
+    _add_spacer(6)
 
     def _insight_context(metric_name: str, median_val) -> str:
         if median_val is None or (isinstance(median_val, float) and not math.isfinite(median_val)):
@@ -1995,8 +1997,8 @@ def build_player_report_docx(
             color_b=color_b or "#9CA3AF",
             bar_mode="percentile",
             player_age=player_age,
-            league_label=competition_level,
-            season_label=report_date,
+            league_label=league_for_png,
+            season_label=season_for_png,
         )
         chart_width_in = min(usable_width_in - 0.25, 6.3)
         chart_width_in = max(chart_width_in, 5.5)
@@ -2601,6 +2603,20 @@ with colA:
     color_b = st.color_picker("Color B", "#E76F51")
 # Download button for combined PNG
 if p1 and metrics_sel:
+    def _trimmed(value: str | None) -> str | None:
+        if not isinstance(value, str):
+            return value
+        text = value.strip()
+        return text or None
+
+    league_override = _trimmed(st.session_state.get("docx_competition"))
+    season_override = _trimmed(st.session_state.get("docx_season"))
+    combined_league = " ".join(
+        part for part in (league_override, season_override) if part
+    )
+    league_label_override = combined_league or league_override
+    season_label_override = None if combined_league else season_override
+
     png_buf = make_radar_bars_png(
         df_all,
         p1,
@@ -2608,6 +2624,8 @@ if p1 and metrics_sel:
         metrics_sel,
         color_a,
         color_b,
+        league_label=league_label_override,
+        season_label=season_label_override,
     )
     st.download_button(
         "⬇️ Download Radar + Barras (PNG)",
