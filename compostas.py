@@ -1935,7 +1935,7 @@ def build_player_report_docx(
 
     _add_spacer(6)
 
-    doc.add_page_break()
+    _add_spacer(6)
 
     def _insight_context(metric_name: str, median_val) -> str:
         if median_val is None or (isinstance(median_val, float) and not math.isfinite(median_val)):
