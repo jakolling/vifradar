@@ -27,10 +27,8 @@ OUTPUT_FILE = "nassim_ait_mouhou_executive_report.docx"
 REPORT_TITLE = "Performance radar and percentile overview"
 REPORT_SUBTITLE = "Executive report"
 PLAYER_NAME_DEFAULT = "Nassim Ait Mouhou"
-REPORT_DATE_DEFAULT = "October 24, 2025"
 REPORT_AUTHOR = "Joao Alberto Kolling"
 REPORT_CONFIDENTIALITY_NOTE = "Confidential — For internal club use only."
-SAMPLE_SIZE_DEFAULT = 486
 PLAYER_CLUB_DEFAULT = "VVV Venlo"
 PLAYER_POSITION_DEFAULT = "LAMF, LW"
 PLAYER_AGE_DEFAULT = 21
@@ -1119,8 +1117,6 @@ def build_player_report_docx(
     team_logo: bytes | io.BytesIO | None = None,
     report_title: str | None = None,
     report_subtitle: str | None = None,
-    report_date: str | None = None,
-    sample_size: int | None = None,
     prepared_by: str | None = None,
     confidentiality_note: str | None = None,
     generated_on: str | None = None,
@@ -1181,10 +1177,6 @@ def build_player_report_docx(
     primary_title = report_title or REPORT_TITLE
     subtitle = report_subtitle or REPORT_SUBTITLE
     athlete_name = player_name or PLAYER_NAME_DEFAULT
-    report_date = report_date or REPORT_DATE_DEFAULT
-    sample_size = sample_size if sample_size is not None else len(df)
-    if not sample_size:
-        sample_size = SAMPLE_SIZE_DEFAULT
     default_confidentiality_note = (
         confidentiality_note or REPORT_CONFIDENTIALITY_NOTE
     )
@@ -1772,8 +1764,6 @@ def build_player_report_docx(
         ("Age", f"{player_age}"),
         ("Minutes played", f"{minutes}"),
         ("Competition level", competition_level),
-        ("Report date", report_date),
-        ("Sample size", str(sample_size)),
     ]
 
     info_rows = math.ceil(len(info_items) / 2)
