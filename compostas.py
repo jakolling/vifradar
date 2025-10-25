@@ -1591,13 +1591,8 @@ def build_player_report_docx(
     header_subtitle.paragraph_format.space_after = Pt(0)
     header_subtitle.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
-    header_note = header_cell.add_paragraph(confidentiality_note, style="Note")
-    header_note.paragraph_format.space_before = Pt(4)
-    header_note.paragraph_format.space_after = Pt(0)
-    header_note.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-
     header_meta = header_cell.add_paragraph(style="Tag")
-    header_meta.paragraph_format.space_before = Pt(0)
+    header_meta.paragraph_format.space_before = Pt(4)
     header_meta.paragraph_format.space_after = Pt(0)
     header_meta.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
     header_meta_text = (
@@ -1621,14 +1616,7 @@ def build_player_report_docx(
     footer_left_paragraph = footer_left.paragraphs[0]
     footer_left_paragraph.style = doc.styles["Note"]
     footer_left_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    footer_left_paragraph.text = f"Report ID: {REPORT_ID}"
-    footer_left_note = footer_left.add_paragraph(
-        confidentiality_note,
-        style="Note",
-    )
-    footer_left_note.paragraph_format.space_before = Pt(2)
-    footer_left_note.paragraph_format.space_after = Pt(0)
-    footer_left_note.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    footer_left_paragraph.text = ""
 
     footer_center_paragraph = footer_center.paragraphs[0]
     footer_center_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
