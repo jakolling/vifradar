@@ -1595,9 +1595,7 @@ def build_player_report_docx(
     header_meta.paragraph_format.space_before = Pt(4)
     header_meta.paragraph_format.space_after = Pt(0)
     header_meta.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-    header_meta_text = (
-        f"Generated on {generated_on} · Prepared by {prepared_by}"
-    )
+    header_meta_text = f"Generated on {generated_on}"
     header_meta.add_run(header_meta_text)
 
     footer = section.footer
