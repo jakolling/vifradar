@@ -28,8 +28,8 @@ REPORT_TITLE = "Performance radar and percentile overview"
 REPORT_SUBTITLE = "Executive report"
 PLAYER_NAME_DEFAULT = "Nassim Ait Mouhou"
 REPORT_DATE_DEFAULT = "October 24, 2025"
-REPORT_AUTHOR = "Vítor Frade"
-REPORT_CONFIDENTIALITY_NOTE = "Confidencial — Uso interno do clube."
+REPORT_AUTHOR = "Joao Alberto Kolling"
+REPORT_CONFIDENTIALITY_NOTE = "Confidential — For internal club use only."
 SAMPLE_SIZE_DEFAULT = 486
 PLAYER_CLUB_DEFAULT = "VVV Venlo"
 PLAYER_POSITION_DEFAULT = "LAMF, LW"
@@ -1588,7 +1588,7 @@ def build_player_report_docx(
     header_meta.paragraph_format.space_after = Pt(0)
     header_meta.alignment = WD_ALIGN_PARAGRAPH.LEFT
     header_meta_text = (
-        f"Gerado em {generated_on} · Preparado por {prepared_by}"
+        f"Generated on {generated_on} · Prepared by {prepared_by}"
     )
     header_meta.add_run(header_meta_text)
 
@@ -1627,7 +1627,7 @@ def build_player_report_docx(
     _add_page_field(footer_center_paragraph, "NUMPAGES \\* Arabic")
 
     footer_center_generated = footer_center.add_paragraph(
-        f"Gerado em {generated_on}",
+        f"Generated on {generated_on}",
         style="Note",
     )
     footer_center_generated.paragraph_format.space_before = Pt(2)
@@ -1639,7 +1639,7 @@ def build_player_report_docx(
     footer_right_paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     footer_right_paragraph.text = f"Version {REPORT_VERSION}"
     footer_right_author = footer_right.add_paragraph(
-        f"Preparado por {prepared_by}",
+        f"Prepared by {prepared_by}",
         style="Note",
     )
     footer_right_author.paragraph_format.space_before = Pt(2)
