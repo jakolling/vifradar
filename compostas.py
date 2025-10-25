@@ -27,15 +27,20 @@ OUTPUT_FILE = "nassim_ait_mouhou_executive_report.docx"
 REPORT_TITLE = "Performance radar and percentile overview"
 REPORT_SUBTITLE = "Executive report"
 PLAYER_NAME_DEFAULT = "Nassim Ait Mouhou"
-REPORT_DATE_DEFAULT = "October 24, 2025"
-SAMPLE_SIZE_DEFAULT = 486
+REPORT_AUTHOR = "Joao Alberto Kolling"
+REPORT_CONFIDENTIALITY_NOTE = "Confidential — For internal club use only."
 PLAYER_CLUB_DEFAULT = "VVV Venlo"
 PLAYER_POSITION_DEFAULT = "LAMF, LW"
 PLAYER_AGE_DEFAULT = 21
-PLAYER_MINUTES_DEFAULT = 772
+SAMPLE_SIZE_DEFAULT = 486
 COMPETITION_LEVEL_DEFAULT = "—"
 REPORT_ID = "VIF-PR-2025-10-24"
 REPORT_VERSION = "v1.0"
+A4_WIDTH_MM = 210
+A4_HEIGHT_MM = 297
+PAGE_MARGIN_MM = 20
+HEADER_FOOTER_DISTANCE_MM = 12
+
 METHODOLOGY_COHORT = 435
 METHODOLOGY_WINDOW = "Rolling 18-month window (Aug 2023 – Feb 2025)"
 METHODOLOGY_REVERSALS = "Negative-impact metrics are inverted before percentile ranking."
@@ -1117,8 +1122,11 @@ def build_player_report_docx(
     team_logo: bytes | io.BytesIO | None = None,
     report_title: str | None = None,
     report_subtitle: str | None = None,
+    competition_level_override: str | None = None,
+    prepared_by: str | None = None,
+    confidentiality_note: str | None = None,
+    generated_on: str | None = None,
     report_date: str | None = None,
-    sample_size: int | None = None,
 ) -> io.BytesIO:
     if "Player" not in df.columns:
         raise ValueError("DataFrame must contain the 'Player' column.")
@@ -1176,10 +1184,11 @@ def build_player_report_docx(
     primary_title = report_title or REPORT_TITLE
     subtitle = report_subtitle or REPORT_SUBTITLE
     athlete_name = player_name or PLAYER_NAME_DEFAULT
-    report_date = report_date or REPORT_DATE_DEFAULT
-    sample_size = sample_size if sample_size is not None else len(df)
-    if not sample_size:
-        sample_size = SAMPLE_SIZE_DEFAULT
+    default_confidentiality_note = (
+        confidentiality_note or REPORT_CONFIDENTIALITY_NOTE
+    )
+    if generated_on is None:
+        generated_on = datetime.now().strftime("%B %d, %Y")
 
     def _clean(value):
         if value is None:
@@ -1191,20 +1200,25 @@ def build_player_report_docx(
             return None
         return value
 
+    confidentiality_note = _clean(default_confidentiality_note) or REPORT_CONFIDENTIALITY_NOTE
+    prepared_by = _clean(prepared_by) or REPORT_AUTHOR
+    generated_on = _clean(generated_on) or datetime.now().strftime("%B %d, %Y")
+    report_date = _clean(report_date)
+
     player_club = _clean(row.get("Team")) or PLAYER_CLUB_DEFAULT
     player_position = _clean(row.get("Position")) or PLAYER_POSITION_DEFAULT
     player_age = _player_age(row) or PLAYER_AGE_DEFAULT
-    minutes = row.get("Minutes played") if "Minutes played" in row.index else row.get("Minutes")
-    if pd.notna(minutes):
-        try:
-            minutes = int(float(minutes))
-        except Exception:
-            minutes = _clean(minutes)
+    competition_level = (
+        _clean(competition_level_override)
+        or _clean(row.get("League"))
+        or COMPETITION_LEVEL_DEFAULT
+    )
+    if "Player" in df.columns:
+        sample_size = int(pd.Series(df["Player"]).dropna().nunique())
     else:
-        minutes = None
-    if minutes is None:
-        minutes = PLAYER_MINUTES_DEFAULT
-    competition_level = _clean(row.get("League")) or COMPETITION_LEVEL_DEFAULT
+        sample_size = len(df)
+    if not sample_size:
+        sample_size = SAMPLE_SIZE_DEFAULT
 
     def _descriptor_for_metric(metric_name: str, pct_value: float, raw_value):
         descriptor = f"{pct_value:.0f}th pct"
@@ -1341,6 +1355,16 @@ def build_player_report_docx(
 
     doc = Document()
 
+    def _configure_section(section):
+        section.orientation = WD_ORIENTATION.PORTRAIT
+        section.page_width = Mm(A4_WIDTH_MM)
+        section.page_height = Mm(A4_HEIGHT_MM)
+        margin = Mm(PAGE_MARGIN_MM)
+        section.left_margin = section.right_margin = margin
+        section.top_margin = section.bottom_margin = margin
+        section.header_distance = Mm(HEADER_FOOTER_DISTANCE_MM)
+        section.footer_distance = Mm(HEADER_FOOTER_DISTANCE_MM)
+
     def _ensure_style(name: str, style_type=WD_STYLE_TYPE.PARAGRAPH):
         try:
             return doc.styles[name]
@@ -1412,15 +1436,10 @@ def build_player_report_docx(
     note_style.font.italic = True
     note_style.font.color.rgb = muted_text
 
+    for section in doc.sections:
+        _configure_section(section)
+
     section = doc.sections[-1]
-    section.orientation = WD_ORIENTATION.PORTRAIT
-    section.page_width = Mm(210)
-    section.page_height = Mm(297)
-    margin = Mm(20)
-    section.left_margin = section.right_margin = margin
-    section.top_margin = section.bottom_margin = margin
-    section.header_distance = Mm(12)
-    section.footer_distance = Mm(12)
 
     def _apply_cell_shading(cell, fill: str):
         tc_pr = cell._tc.get_or_add_tcPr()
@@ -1547,36 +1566,37 @@ def build_player_report_docx(
         - section.left_margin.cm
         - section.right_margin.cm
     )
+    usable_width_in = (
+        section.page_width.inches
+        - section.left_margin.inches
+        - section.right_margin.inches
+    )
 
-    header_table = header.add_table(rows=1, cols=2, width=usable_width)
+    header_table = header.add_table(rows=1, cols=1, width=usable_width)
     header_table.autofit = False
-    header_left, header_right = header_table.rows[0].cells
-    header_table.columns[1].width = Cm(1.4)
-    header_table.columns[0].width = Cm(max(usable_width_cm - 1.4, 6.0))
-    _set_cell_margins(header_left, top=40, bottom=40, start=80, end=80)
-    _set_cell_margins(header_right, top=40, bottom=40, start=80, end=80)
+    header_cell = header_table.rows[0].cells[0]
 
-    header_left.text = ""
-    header_title = header_left.paragraphs[0]
+    header_table.columns[0].width = Cm(max(usable_width_cm, 6.0))
+
+    _set_cell_margins(header_cell, top=40, bottom=40, start=80, end=80)
+
+    header_cell.text = ""
+    header_title = header_cell.paragraphs[0]
     header_title.style = doc.styles["SmallCaps"]
     header_title.paragraph_format.space_after = Pt(0)
     header_title.text = primary_title
-    header_subtitle = header_left.add_paragraph(subtitle, style="Tag")
+    header_title.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    header_subtitle = header_cell.add_paragraph(subtitle, style="Tag")
     header_subtitle.paragraph_format.space_before = Pt(0)
     header_subtitle.paragraph_format.space_after = Pt(0)
+    header_subtitle.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
-    header_logo_para = header_right.paragraphs[0]
-    header_logo_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    header_logo_para.paragraph_format.space_after = Pt(0)
-    small_logo_stream = _clone_stream(logo_stream)
-    if small_logo_stream is not None:
-        small_logo_stream.seek(0)
-        header_logo_para.add_run().add_picture(small_logo_stream, width=Cm(1.2))
-    else:
-        logo_placeholder = header_logo_para.add_run("CLUB\nCREST")
-        logo_placeholder.font.size = Pt(7)
-        logo_placeholder.font.bold = True
-        logo_placeholder.font.color.rgb = muted_text
+    header_meta = header_cell.add_paragraph(style="Tag")
+    header_meta.paragraph_format.space_before = Pt(4)
+    header_meta.paragraph_format.space_after = Pt(0)
+    header_meta.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    header_meta_text = f"Generated on {generated_on}"
+    header_meta.add_run(header_meta_text)
 
     footer = section.footer
     footer.is_linked_to_previous = False
@@ -1594,7 +1614,9 @@ def build_player_report_docx(
     footer_left_paragraph = footer_left.paragraphs[0]
     footer_left_paragraph.style = doc.styles["Note"]
     footer_left_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    footer_left_paragraph.text = f"Report ID: {REPORT_ID}"
+    footer_left_paragraph.text = ""
+    if prepared_by:
+        footer_left_paragraph.add_run(f"Prepared by {prepared_by}")
 
     footer_center_paragraph = footer_center.paragraphs[0]
     footer_center_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -1604,6 +1626,7 @@ def build_player_report_docx(
     _add_page_field(footer_center_paragraph, "PAGE \\* Arabic")
     footer_center_paragraph.add_run(" of ")
     _add_page_field(footer_center_paragraph, "NUMPAGES \\* Arabic")
+
 
     footer_right_paragraph = footer_right.paragraphs[0]
     footer_right_paragraph.style = doc.styles["Note"]
@@ -1730,14 +1753,16 @@ def build_player_report_docx(
 
     _add_section_heading("Player information")
 
+    league_parts = [
+        part for part in (competition_level, report_date) if part and part != "—"
+    ]
+    league_display = " ".join(league_parts) if league_parts else None
+
     info_items = [
         ("Club", player_club),
         ("Position", player_position),
         ("Age", f"{player_age}"),
-        ("Minutes played", f"{minutes}"),
-        ("Competition level", competition_level),
-        ("Report date", report_date),
-        ("Sample size", str(sample_size)),
+        ("League", league_display),
     ]
 
     info_rows = math.ceil(len(info_items) / 2)
@@ -1796,32 +1821,28 @@ def build_player_report_docx(
     methodology_cell.text = ""
     methodology_title = methodology_cell.paragraphs[0]
     methodology_title.style = doc.styles["SmallCaps"]
-    methodology_title.text = "Cohort methodology"
-    methodology_title.paragraph_format.space_after = Pt(4)
-    methodology_points = [
-        f"• Cohort: {METHODOLOGY_COHORT} players across the latest scouting pool.",
-        f"• Observation window: {METHODOLOGY_WINDOW}.",
-        f"• Metric treatment: {METHODOLOGY_REVERSALS}",
-    ]
-    for point in methodology_points:
-        line = methodology_cell.add_paragraph(point, style="Body")
-        line.paragraph_format.space_before = Pt(2)
-        line.paragraph_format.space_after = Pt(2)
+    methodology_title.text = "Methodology"
+    methodology_title.paragraph_format.space_after = Pt(6)
 
-    _add_spacer(10)
+    def _add_methodology_line(text: str, style_name: str = "Body", space_before: float = 2, space_after: float = 2):
+        paragraph = methodology_cell.add_paragraph(text, style=style_name)
+        paragraph.paragraph_format.space_before = Pt(space_before)
+        paragraph.paragraph_format.space_after = Pt(space_after)
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        return paragraph
 
-    summary_items: list[dict[str, object]] = list(standouts[:3])
-    if len(summary_items) < 3:
-        summary_items.extend(development[: 3 - len(summary_items)])
+    _add_methodology_line(f"Players analyzed: {sample_size} players.")
+    _add_methodology_line(
+        "Percentiles and radar always use the full loaded dataset. Negative-impact metrics are auto-reversed so “higher = better”.",
+    )
+    _add_methodology_line("Data treatment & normalization:")
+    _add_methodology_line(
+        "Missing values are safely handled; per-90 and ratio metrics guard against divide-by-zero. Composite scores are built from z-scores of component stats and then normalized to a 0–100 scale. Metrics where “lower is better” (e.g., cards, conceded/xGA) are inverted so that bigger bars/areas indicate stronger performance.",
+    )
+
+    _add_spacer(6)
 
     doc.add_page_break()
-
-    _add_section_heading("Executive summary")
-    summary_intro = doc.add_paragraph(
-        f"Headline signals benchmarked against the full cohort of {sample_size} players.",
-        style="Body",
-    )
-    summary_intro.paragraph_format.space_after = Pt(6)
 
     def _insight_context(metric_name: str, median_val) -> str:
         if median_val is None or (isinstance(median_val, float) and not math.isfinite(median_val)):
@@ -1833,34 +1854,6 @@ def build_player_report_docx(
             except Exception:
                 return ""
         return formatted
-
-    for item in summary_items:
-        metric_label = str(item.get("metric", ""))
-        descriptor = str(item.get("descriptor", ""))
-        bullet = doc.add_paragraph(style="Body")
-        bullet.paragraph_format.space_before = Pt(2)
-        bullet.paragraph_format.space_after = Pt(4)
-        bullet_run = bullet.add_run("• ")
-        bullet_run.bold = True
-        label_run = bullet.add_run(f"{metric_label}: ")
-        label_run.bold = True
-        percent_part = descriptor
-        value_part = ""
-        if "(" in descriptor:
-            percent_part, rest = descriptor.split("(", 1)
-            percent_part = percent_part.strip()
-            value_part = f"({rest}".strip()
-        pct_run = bullet.add_run(percent_part.strip())
-        pct_run.bold = True
-        if value_part:
-            bullet.add_run(f" {value_part}")
-        context_text = _insight_context(metric_label, item.get("median"))
-        if context_text:
-            bullet.add_run(f" — dataset median {context_text}")
-
-    _add_spacer(6)
-
-    doc.add_page_break()
 
     _add_section_heading("Visual analysis")
 
@@ -1911,7 +1904,9 @@ def build_player_report_docx(
             color_b=color_b or "#9CA3AF",
             bar_mode="percentile",
         )
-        chart_image_para.add_run().add_picture(radar_png, width=Inches(6.3))
+        chart_width_in = min(usable_width_in - 0.25, 6.3)
+        chart_width_in = max(chart_width_in, 5.5)
+        chart_image_para.add_run().add_picture(radar_png, width=Inches(chart_width_in))
     except Exception:
         fallback = chart_cell.add_paragraph("Radar visualization unavailable.", style="Note")
         fallback.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -2541,6 +2536,36 @@ st.download_button(
 )
 
 st.markdown("#### Relatório DOCX (Radar + Percentis)")
+
+if "docx_competition" not in st.session_state:
+    st.session_state.docx_competition = ""
+if "docx_season" not in st.session_state:
+    st.session_state.docx_season = ""
+if "docx_show_competition" not in st.session_state:
+    st.session_state.docx_show_competition = False
+if "docx_show_season" not in st.session_state:
+    st.session_state.docx_show_season = False
+
+prompt_col_a, prompt_col_b = st.columns(2)
+with prompt_col_a:
+    if st.button("Set competition", key="docx_set_competition"):
+        st.session_state.docx_show_competition = True
+    if st.session_state.get("docx_show_competition", False):
+        st.text_input(
+            "Competition",
+            key="docx_competition",
+            help="Use this field to override the competition shown in the report.",
+        )
+with prompt_col_b:
+    if st.button("Set season", key="docx_set_season"):
+        st.session_state.docx_show_season = True
+    if st.session_state.get("docx_show_season", False):
+        st.text_input(
+            "Season / Year",
+            key="docx_season",
+            help="Provide the season or year label that appears as the report date.",
+        )
+
 col_doc_a, col_doc_b = st.columns(2)
 with col_doc_a:
     player_photo_upload = st.file_uploader(
@@ -2565,8 +2590,10 @@ if p1 and len(valid_metrics_for_docx) >= 3:
             metrics=valid_metrics_for_docx,
             color_a=color_a,
             color_b=color_b,
+            competition_level_override=st.session_state.get("docx_competition"),
             player_photo=player_photo_upload.getvalue() if player_photo_upload else None,
             team_logo=team_logo_upload.getvalue() if team_logo_upload else None,
+            report_date=st.session_state.get("docx_season"),
         )
         st.download_button(
             "⬇️ Baixar relatório DOCX",
