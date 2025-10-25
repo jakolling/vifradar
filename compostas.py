@@ -32,7 +32,6 @@ REPORT_CONFIDENTIALITY_NOTE = "Confidential — For internal club use only."
 PLAYER_CLUB_DEFAULT = "VVV Venlo"
 PLAYER_POSITION_DEFAULT = "LAMF, LW"
 PLAYER_AGE_DEFAULT = 21
-PLAYER_MINUTES_DEFAULT = 772
 REPORT_DATE_DEFAULT = "October 24, 2025"
 SAMPLE_SIZE_DEFAULT = 486
 COMPETITION_LEVEL_DEFAULT = "—"
@@ -1119,11 +1118,11 @@ def build_player_report_docx(
     team_logo: bytes | io.BytesIO | None = None,
     report_title: str | None = None,
     report_subtitle: str | None = None,
+    competition_level_override: str | None = None,
     prepared_by: str | None = None,
     confidentiality_note: str | None = None,
     generated_on: str | None = None,
     report_date: str | None = None,
-    minutes_filter: int | None = None,
 ) -> io.BytesIO:
     if "Player" not in df.columns:
         raise ValueError("DataFrame must contain the 'Player' column.")
@@ -1205,28 +1204,17 @@ def build_player_report_docx(
     player_club = _clean(row.get("Team")) or PLAYER_CLUB_DEFAULT
     player_position = _clean(row.get("Position")) or PLAYER_POSITION_DEFAULT
     player_age = _player_age(row) or PLAYER_AGE_DEFAULT
-    minutes = row.get("Minutes played") if "Minutes played" in row.index else row.get("Minutes")
-    if pd.notna(minutes):
-        try:
-            minutes = int(float(minutes))
-        except Exception:
-            minutes = _clean(minutes)
-    else:
-        minutes = None
-    if minutes is None:
-        minutes = PLAYER_MINUTES_DEFAULT
-    competition_level = _clean(row.get("League")) or COMPETITION_LEVEL_DEFAULT
+    competition_level = (
+        _clean(competition_level_override)
+        or _clean(row.get("League"))
+        or COMPETITION_LEVEL_DEFAULT
+    )
     if "Player" in df.columns:
         sample_size = int(pd.Series(df["Player"]).dropna().nunique())
     else:
         sample_size = len(df)
     if not sample_size:
         sample_size = SAMPLE_SIZE_DEFAULT
-    minutes_filter_value = minutes_filter if minutes_filter is not None else 0
-    try:
-        minutes_filter_value = int(minutes_filter_value)
-    except Exception:
-        minutes_filter_value = 0
 
     def _descriptor_for_metric(metric_name: str, pct_value: float, raw_value):
         descriptor = f"{pct_value:.0f}th pct"
@@ -1601,12 +1589,6 @@ def build_player_report_docx(
     )
     header_meta.add_run(header_meta_text)
 
-    header_sample = header_cell.add_paragraph(style="Tag")
-    header_sample.paragraph_format.space_before = Pt(0)
-    header_sample.paragraph_format.space_after = Pt(0)
-    header_sample.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    header_sample.add_run(f"Sample size: {sample_size} players")
-
     footer = section.footer
     footer.is_linked_to_previous = False
     while footer.paragraphs:
@@ -1785,10 +1767,8 @@ def build_player_report_docx(
         ("Club", player_club),
         ("Position", player_position),
         ("Age", f"{player_age}"),
-        ("Minutes played", f"{minutes}"),
         ("Competition level", competition_level),
         ("Report date", report_date),
-        ("Sample size", f"{sample_size} players"),
     ]
 
     info_rows = math.ceil(len(info_items) / 2)
@@ -1857,16 +1837,9 @@ def build_player_report_docx(
         paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
         return paragraph
 
-    _add_methodology_line(f"Players analyzed (sample size): {sample_size} players.")
+    _add_methodology_line(f"Players analyzed: {sample_size} players.")
     _add_methodology_line(
-        "(Counted after loading the merged dataset; also printed in the report header as “Sample size”.)",
-        style_name="Note",
-        space_before=0,
-        space_after=6,
-    )
-    _add_methodology_line(f"Minutes-played filter: ≥ {minutes_filter_value} minutes.")
-    _add_methodology_line(
-        "Used only to decide who appears in Rankings; percentiles and radar always use the full loaded dataset. Negative-impact metrics are auto-reversed so “higher = better”.",
+        "Percentiles and radar always use the full loaded dataset. Negative-impact metrics are auto-reversed so “higher = better”.",
     )
     _add_methodology_line("Data treatment & normalization:")
     _add_methodology_line(
@@ -2577,6 +2550,36 @@ st.download_button(
 )
 
 st.markdown("#### Relatório DOCX (Radar + Percentis)")
+
+if "docx_competition" not in st.session_state:
+    st.session_state.docx_competition = ""
+if "docx_season" not in st.session_state:
+    st.session_state.docx_season = ""
+if "docx_show_competition" not in st.session_state:
+    st.session_state.docx_show_competition = False
+if "docx_show_season" not in st.session_state:
+    st.session_state.docx_show_season = False
+
+prompt_col_a, prompt_col_b = st.columns(2)
+with prompt_col_a:
+    if st.button("Set competition", key="docx_set_competition"):
+        st.session_state.docx_show_competition = True
+    if st.session_state.get("docx_show_competition", False):
+        st.text_input(
+            "Competition",
+            key="docx_competition",
+            help="Use this field to override the competition shown in the report.",
+        )
+with prompt_col_b:
+    if st.button("Set season", key="docx_set_season"):
+        st.session_state.docx_show_season = True
+    if st.session_state.get("docx_show_season", False):
+        st.text_input(
+            "Season / Year",
+            key="docx_season",
+            help="Provide the season or year label that appears as the report date.",
+        )
+
 col_doc_a, col_doc_b = st.columns(2)
 with col_doc_a:
     player_photo_upload = st.file_uploader(
@@ -2601,9 +2604,10 @@ if p1 and len(valid_metrics_for_docx) >= 3:
             metrics=valid_metrics_for_docx,
             color_a=color_a,
             color_b=color_b,
+            competition_level_override=st.session_state.get("docx_competition"),
             player_photo=player_photo_upload.getvalue() if player_photo_upload else None,
             team_logo=team_logo_upload.getvalue() if team_logo_upload else None,
-            minutes_filter=int(min_minutes),
+            report_date=st.session_state.get("docx_season"),
         )
         st.download_button(
             "⬇️ Baixar relatório DOCX",
