@@ -28,6 +28,8 @@ REPORT_TITLE = "Performance radar and percentile overview"
 REPORT_SUBTITLE = "Executive report"
 PLAYER_NAME_DEFAULT = "Nassim Ait Mouhou"
 REPORT_DATE_DEFAULT = "October 24, 2025"
+REPORT_AUTHOR = "Vítor Frade"
+REPORT_CONFIDENTIALITY_NOTE = "Confidencial — Uso interno do clube."
 SAMPLE_SIZE_DEFAULT = 486
 PLAYER_CLUB_DEFAULT = "VVV Venlo"
 PLAYER_POSITION_DEFAULT = "LAMF, LW"
@@ -1119,6 +1121,9 @@ def build_player_report_docx(
     report_subtitle: str | None = None,
     report_date: str | None = None,
     sample_size: int | None = None,
+    prepared_by: str | None = None,
+    confidentiality_note: str | None = None,
+    generated_on: str | None = None,
 ) -> io.BytesIO:
     if "Player" not in df.columns:
         raise ValueError("DataFrame must contain the 'Player' column.")
@@ -1180,6 +1185,11 @@ def build_player_report_docx(
     sample_size = sample_size if sample_size is not None else len(df)
     if not sample_size:
         sample_size = SAMPLE_SIZE_DEFAULT
+    default_confidentiality_note = (
+        confidentiality_note or REPORT_CONFIDENTIALITY_NOTE
+    )
+    if generated_on is None:
+        generated_on = datetime.now().strftime("%B %d, %Y")
 
     def _clean(value):
         if value is None:
@@ -1190,6 +1200,9 @@ def build_player_report_docx(
         if pd.isna(value):
             return None
         return value
+
+    confidentiality_note = _clean(default_confidentiality_note) or REPORT_CONFIDENTIALITY_NOTE
+    prepared_by = _clean(prepared_by) or REPORT_AUTHOR
 
     player_club = _clean(row.get("Team")) or PLAYER_CLUB_DEFAULT
     player_position = _clean(row.get("Position")) or PLAYER_POSITION_DEFAULT
@@ -1565,6 +1578,20 @@ def build_player_report_docx(
     header_subtitle.paragraph_format.space_before = Pt(0)
     header_subtitle.paragraph_format.space_after = Pt(0)
 
+    header_note = header_cell.add_paragraph(confidentiality_note, style="Note")
+    header_note.paragraph_format.space_before = Pt(4)
+    header_note.paragraph_format.space_after = Pt(0)
+    header_note.alignment = WD_ALIGN_PARAGRAPH.LEFT
+
+    header_meta = header_cell.add_paragraph(style="Tag")
+    header_meta.paragraph_format.space_before = Pt(0)
+    header_meta.paragraph_format.space_after = Pt(0)
+    header_meta.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    header_meta_text = (
+        f"Gerado em {generated_on} · Preparado por {prepared_by}"
+    )
+    header_meta.add_run(header_meta_text)
+
     footer = section.footer
     footer.is_linked_to_previous = False
     while footer.paragraphs:
@@ -1582,6 +1609,13 @@ def build_player_report_docx(
     footer_left_paragraph.style = doc.styles["Note"]
     footer_left_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
     footer_left_paragraph.text = f"Report ID: {REPORT_ID}"
+    footer_left_note = footer_left.add_paragraph(
+        confidentiality_note,
+        style="Note",
+    )
+    footer_left_note.paragraph_format.space_before = Pt(2)
+    footer_left_note.paragraph_format.space_after = Pt(0)
+    footer_left_note.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
     footer_center_paragraph = footer_center.paragraphs[0]
     footer_center_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -1592,10 +1626,25 @@ def build_player_report_docx(
     footer_center_paragraph.add_run(" of ")
     _add_page_field(footer_center_paragraph, "NUMPAGES \\* Arabic")
 
+    footer_center_generated = footer_center.add_paragraph(
+        f"Gerado em {generated_on}",
+        style="Note",
+    )
+    footer_center_generated.paragraph_format.space_before = Pt(2)
+    footer_center_generated.paragraph_format.space_after = Pt(0)
+    footer_center_generated.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
     footer_right_paragraph = footer_right.paragraphs[0]
     footer_right_paragraph.style = doc.styles["Note"]
     footer_right_paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     footer_right_paragraph.text = f"Version {REPORT_VERSION}"
+    footer_right_author = footer_right.add_paragraph(
+        f"Preparado por {prepared_by}",
+        style="Note",
+    )
+    footer_right_author.paragraph_format.space_before = Pt(2)
+    footer_right_author.paragraph_format.space_after = Pt(0)
+    footer_right_author.alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
     cover_table = doc.add_table(rows=1, cols=2)
     cover_table.autofit = False
