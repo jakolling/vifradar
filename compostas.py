@@ -1611,34 +1611,26 @@ def build_player_report_docx(
         col.width = widths[idx]
 
     footer_left, footer_center, footer_right = footer_table.rows[0].cells
-    footer_left_paragraph = footer_left.paragraphs[0]
-    footer_left_paragraph.style = doc.styles["Note"]
+    for cell in (footer_left, footer_center, footer_right):
+        for paragraph in list(cell.paragraphs):
+            paragraph._element.getparent().remove(paragraph._element)
+
+    footer_left_paragraph = footer_left.add_paragraph(style="Note")
     footer_left_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    footer_left_paragraph.text = ""
     if prepared_by:
         footer_left_paragraph.add_run(f"Prepared by {prepared_by}")
 
-    footer_center_paragraph = footer_center.paragraphs[0]
+    footer_center_paragraph = footer_center.add_paragraph(style="Body")
     footer_center_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    footer_center_paragraph.style = doc.styles["Body"]
-    footer_center_paragraph.runs.clear()
     footer_center_paragraph.add_run("Page ")
     _add_page_field(footer_center_paragraph, "PAGE \\* Arabic")
     footer_center_paragraph.add_run(" of ")
     _add_page_field(footer_center_paragraph, "NUMPAGES \\* Arabic")
 
 
-    footer_right_paragraph = footer_right.paragraphs[0]
-    footer_right_paragraph.style = doc.styles["Note"]
+    footer_right_paragraph = footer_right.add_paragraph(style="Note")
     footer_right_paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    footer_right_paragraph.text = f"Version {REPORT_VERSION}"
-    footer_right_author = footer_right.add_paragraph(
-        f"Prepared by {prepared_by}",
-        style="Note",
-    )
-    footer_right_author.paragraph_format.space_before = Pt(2)
-    footer_right_author.paragraph_format.space_after = Pt(0)
-    footer_right_author.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    footer_right_paragraph.add_run(f"Version {REPORT_VERSION}")
 
     cover_table = doc.add_table(rows=1, cols=2)
     cover_table.autofit = False
@@ -1849,7 +1841,7 @@ def build_player_report_docx(
 
     _add_spacer(6)
 
-    _add_spacer(6)
+    doc.add_page_break()
 
     def _insight_context(metric_name: str, median_val) -> str:
         if median_val is None or (isinstance(median_val, float) and not math.isfinite(median_val)):
