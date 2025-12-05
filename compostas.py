@@ -19,9 +19,7 @@ from docx.shared import Inches, Pt, RGBColor, Mm, Cm
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
-
 from datetime import datetime, date
-
 
 OUTPUT_FILE = "nassim_ait_mouhou_executive_report.docx"
 REPORT_TITLE = "Performance radar and percentile overview"
@@ -117,8 +115,6 @@ def _player_age(row):
                 pass
     return None
 
-
-
 def _fix_npxg_block(df):
     import numpy as np
     if "xG" in df.columns and "Penalties taken" in df.columns:
@@ -136,7 +132,6 @@ def _fix_npxg_block(df):
     if "Goals" in df.columns and "xG" in df.columns:
         df["G-xG"] = df["Goals"].fillna(0) - df["xG"].fillna(0)
     return df
-
 
 # ===================== CONFIG & STYLE =====================
 st.set_page_config(
@@ -290,7 +285,6 @@ def _ensure_cols(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
         if c not in df.columns:
             df[c] = np.nan
     return df
-
 
 def _slugify_filename(text: str) -> str:
     slug = re.sub(r"[^0-9A-Za-z_-]+", "_", (text or "")).strip("_")
@@ -737,7 +731,8 @@ def plot_radar(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: l
 
     fig, ax = plt.subplots(figsize=(8, 8))
     radar.setup_axis(ax=ax)
-    radar.draw_circles(ax=ax, facecolor="#f3f3f3", edgecolor="#c9c9c9", alpha=0.18)
+    # ALTERADO: Fundo vermelho vivo
+    radar.draw_circles(ax=ax, facecolor="#fee2e2", edgecolor="#ef4444", alpha=0.18)
     try:
         radar.spoke(ax=ax, color="#c9c9c9", linestyle="--", alpha=0.18)
     except Exception:
@@ -1084,10 +1079,11 @@ def make_radar_bars_png(
     # Radar spans first 2 rows
     ax_radar = fig.add_subplot(gs[0:2, :])
     radar.setup_axis(ax=ax_radar)
+    # ALTERADO: Fundo vermelho vivo
     radar.draw_circles(
         ax=ax_radar,
-        facecolor="#f8fafc",
-        edgecolor="#cbd5f5",
+        facecolor="#fee2e2",
+        edgecolor="#ef4444",
         alpha=0.22,
     )
     try:
@@ -1201,8 +1197,6 @@ def make_radar_bars_png(
     plt.close(fig)
     buf.seek(0)
     return buf
-
-
 
 def build_player_report_docx(
     df: pd.DataFrame,
@@ -1719,7 +1713,6 @@ def build_player_report_docx(
     footer_center_paragraph.add_run(" of ")
     _add_page_field(footer_center_paragraph, "NUMPAGES \\* Arabic")
 
-
     footer_right_paragraph = footer_right.add_paragraph(style="Note")
     footer_right_paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     footer_right_paragraph.add_run(f"Version {REPORT_VERSION}")
@@ -2115,6 +2108,7 @@ def build_player_report_docx(
         pass
 
     return output
+
 # ===================== SIDEBAR — Controls =====================
 st.sidebar.header("⚙️ Settings")
 up = st.sidebar.file_uploader("Upload merged Excel (WyScout + SkillCorner)", type=["xlsx"])
@@ -2228,152 +2222,79 @@ if page == "Dashboard":
 
     st.caption("Integrated with composite metrics + physical/technical composites")
 
-
-
     df = None
 
     if demo_mode:
-
         st.warning("Demo mode is ON — synthetic sample loaded.")
-
         df_demo = pd.DataFrame({
-
             "Player": ["Player A","Player B","Player C"],
-
             "Team": ["X","Y","Z"],
-
             "Position": ["CF","RW","DMF"],
-
             "Minutes played": [900, 880, 910],
-
             "Successful attacking actions per 90":[5,7,2],
-
             "xG per 90":[0.3,0.2,0.1],
-
             "xA per 90":[0.2,0.4,0.05],
-
             "Key passes per 90":[1.2,1.5,0.6],
-
             "Deep completions per 90":[1.0,0.8,0.4],
-
             "Deep completed crosses per 90":[0.2,0.5,0.0],
-
             "Progressive runs per 90":[1.1,1.6,0.3],
-
             "Passes to penalty area per 90":[0.6,0.9,0.2],
-
             "Smart passes per 90":[0.4,0.5,0.2],
-
             "Crosses to goalie box per 90":[0.1,0.3,0.0],
-
             "Touches in box per 90":[3.5,4.0,1.2],
-
             "xG":[6.0, 4.8, 1.2],
-
             "Goals":[5,4,1],
-
             "Penalties taken":[1,0,0],
-
             "Shots":[20,18,9],
-
             "Shot assists per 90":[0.5,0.8,0.2],
-
             "Second assists per 90":[0.1,0.2,0.0],
-
             "Accurate passes %":[82,78,90],
-
             "Through passes per 90":[0.3,0.6,0.1],
-
             "Accurate smart passes, %":[55,52,60],
-
             "Accurate through passes, %":[42,38,50],
-
             "Accurate passes to penalty area, %":[40,44,35],
-
             "Progressive passes per 90":[3.0,3.8,1.2],
-
             "Accurate progressive passes, %":[68,62,70],
-
             "Dribbles per 90":[2.0,3.5,0.8],
-
             "Successful dribbles, %":[55,48,52],
-
             "Accelerations per 90":[1.2,1.8,0.6],
-
             "Successful defensive actions per 90":[4.0,2.0,6.0],
-
             "Defensive duels per 90":[5.0,3.0,8.0],
-
             "Defensive duels won, %":[60,55,68],
-
             "Aerial duels per 90":[2.0,1.0,3.0],
-
             "Aerial duels won, %":[50,45,62],
-
             "PAdj Sliding tackles":[0.3,0.1,0.7],
-
             "PAdj Interceptions":[0.8,0.4,1.2],
-
             "Shots blocked per 90":[0.2,0.1,0.5],
-
             "Passes per 90":[35,42,55],
-
             "Received passes per 90":[12,14,10],
-
             "Touches per 90":[50,48,62],
-
             "Passes to final third per 90":[2.2,1.9,1.5],
-
             "Accurate passes to final third, %":[70,64,72],
-
             "Forward passes per 90":[12,14,10],
-
             "Accurate forward passes, %":[78,75,82],
-
             "Long passes per 90":[3.0,2.0,5.0],
-
             "Accurate long passes, %":[55,48,62],
-
             "Lateral passes per 90":[7.0,8.0,6.0],
-
             "Accurate lateral passes, %":[90,88,92],
-
             "Back passes per 90":[4.0,6.0,5.0],
-
             "Accurate back passes, %":[94,96,95],
-
             "Head goals per 90":[0.05,0.02,0.03],
-
             "Goal conversion, %":[18,15,8],
-
             "Shots on target, %":[45,42,38],
-
             "Fouls per 90":[1.5,1.8,2.2],
-
             "Yellow cards per 90":[0.2,0.15,0.25],
-
             "Red cards per 90":[0.01,0.0,0.02],
-
             "Distance P90":[10000,9800,10500],
-
             "Running Distance P90":[8000,7800,8200],
-
             "HI Distance P90":[1500,1300,1100],
-
             "HSR Distance P90":[600,550,500],
-
             "Sprint Distance P90":[250,220,200],
-
             "HSR Count P90":[40,35,30],
-
             "Sprint Count P90":[15,12,10],
-
             "Explosive Acceleration to HSR Count P90":[3,2,2],
-
             "Explosive Acceleration to Sprint Count P90":[1,1,1],
-
         })
-
         df = compute_composite_metrics(df_demo, DEFAULT_OFF_WEIGHTS)
 if page == "Ferramenta de Busca":
     # --- Garantia: só continue se df_all existir e estiver pronto ---
@@ -2429,7 +2350,6 @@ if page == "Ferramenta de Busca":
     # Colunas base e lista de colunas de percentil
     base_cols = [c for c in ["Player", "Short Name", "Team", "Position", "Minutes played", "Minutes"] if c in res.columns]
     pct_col_names = [f"{m} (pct)" for m in metrics_for_preset if f"{m} (pct)" in res.columns]
-
 
     # Aplica filtros de minutes, team e posição já existentes
     if "Minutes played" in res.columns:
@@ -2601,6 +2521,7 @@ with colA:
     p2 = st.selectbox("Player B (optional)", ["—"] + players)
     color_a = st.color_picker("Color A", "#2A9D8F")
     color_b = st.color_picker("Color B", "#E76F51")
+    
 # Download button for combined PNG
 if p1 and metrics_sel:
     def _trimmed(value: str | None) -> str | None:
@@ -2720,323 +2641,3 @@ elif p1 and metrics_sel:
     st.info("Selecione pelo menos 3 métricas válidas para gerar o relatório DOCX.")
 else:
     st.info("Escolha um jogador e as métricas desejadas para habilitar o relatório DOCX.")
-
-
-# --- Revised presets (auto-generated) ---
-PRESETS = {'aerial_duels': ['Aerial Threat',
-                  'Aerial Defence',
-                  'Aerial duels per 90',
-                  'Aerial duels won, %',
-                  'Head goals per 90',
-                  'Involvement',
-                  'Defence'],
- 'attacking_midfielder': ['Creativity',
-                          'Progression',
-                          'xA per 90',
-                          'Key passes per 90',
-                          'Smart passes per 90',
-                          'Deep completions per 90',
-                          'Work Rate Offensive',
-                          'Offensive Intensity',
-                          'Offensive Explosion'],
- 'center_back': ['Defence',
-                 'Aerial Defence',
-                 'Aerial duels per 90',
-                 'Aerial duels won, %',
-                 'Defensive duels per 90',
-                 'Defensive duels won, %',
-                 'PAdj Interceptions',
-                 'PAdj Sliding tackles',
-                 'Passes to final third per 90',
-                 'Accurate passes %',
-                 'Work Rate Defensive',
-                 'Defensive Intensity',
-                 'Defensive Explosion'],
- 'central_midfielder': ['Progression',
-                        'Passing Quality',
-                        'PAdj Interceptions',
-                        'Successful defensive actions per 90',
-                        'Work Rate Defensive',
-                        'Defensive Intensity',
-                        'Passes to final third per 90',
-                        'Progressive runs per 90',
-                        'Deep completions per 90'],
- 'counter_attack': ['Progression',
-                    'Accelerations per 90',
-                    'Dribbles per 90',
-                    'Successful dribbles, %',
-                    'npxG per 90',
-                    'Finishing',
-                    'Box Threat'],
- 'crossing': ['Crossing',
-              'Accurate crosses, %',
-              'Deep completed crosses per 90',
-              'xA per 90',
-              'Shot assists per 90',
-              'Creativity',
-              'Passing Quality'],
- 'defensive_actions': ['Defence',
-                       'Aerial Defence',
-                       'PAdj Interceptions',
-                       'Successful defensive actions per 90',
-                       'Defensive duels won, %',
-                       'Shots blocked per 90',
-                       'Discipline'],
- 'defensive_midfielder': ['Defence',
-                          'Progression',
-                          'Discipline',
-                          'PAdj Interceptions',
-                          'Successful defensive actions per 90',
-                          'Work Rate Defensive',
-                          'Defensive Intensity',
-                          'Defensive Explosion',
-                          'Defensive duels won, %',
-                          'Aerial duels won, %'],
- 'forward': ['npxG per 90',
-             'xG per 90',
-             'Shots per 90',
-             'Shots on target, %',
-             'xA per 90',
-             'Key passes per 90',
-             'Touches in box per 90',
-             'Progressive runs per 90',
-             'Deep completions per 90',
-             'Finishing',
-             'Poaching',
-             'Aerial Threat',
-             'Work Rate Offensive',
-             'Offensive Intensity',
-             'Offensive Explosion'],
- 'full_back': ['Progression',
-               'Creativity',
-               'Passing Quality',
-               'Aerial Defence',
-               'Deep completed crosses per 90',
-               'Progressive runs per 90',
-               'Crosses per 90',
-               'Work Rate Defensive',
-               'Defensive Intensity',
-               'Defensive Explosion'],
- 'general_summary': ['Involvement', 'Creativity', 'Box Threat', 'Discipline'],
- 'playmaking_build_up': ['Successful attacking actions per 90',
-                         'Deep completions per 90',
-                         'Key passes per 90',
-                         'Discipline',
-                         'Creativity',
-                         'Passing Quality',
-                         'Progression'],
- 'shooting': ['npxG per 90',
-              'npxG per Shot',
-              'Finishing',
-              'Goal conversion, %',
-              'Shots on target, %',
-              'G-xG',
-              'Box Threat'],
- 'striker': ['Involvement',
-             'npxG per 90',
-             'npxG per Shot',
-             'Finishing',
-             'Poaching',
-             'Aerial Threat',
-             'Box Threat',
-             'Touches in box per 90',
-             'Shots per 90',
-             'Shots on target, %'],
- 'winger': ['Creativity',
-            'Progression',
-            'Dribbles per 90',
-            'Dribbles won, %',
-            'Crosses per 90',
-            'Accurate crosses, %',
-            'Deep completed crosses per 90',
-            'Progressive runs per 90',
-            'xA per 90',
-            'Key passes per 90',
-            'Work Rate Offensive',
-            'Offensive Intensity',
-            'Offensive Explosion',
-            'Successful dribbles, %']}
-
-
-# --- Guarantee fusion of playmaking + build_up into playmaking_build_up (runs after any PRESETS re-definitions) ---
-def _radar_norm_key__pm_bu(s: str) -> str:
-    return (
-        str(s).strip().lower().replace("-", "_").replace(" ", "_")
-    )
-
-def _radar_dedup_keep_order__pm_bu(seq):
-    seen = set(); out = []
-    for x in seq:
-        if x not in seen:
-            out.append(x); seen.add(x)
-    return out
-
-try:
-    _keys_map = { _radar_norm_key__pm_bu(k): k for k in list(PRESETS.keys()) }
-    _k_play  = _keys_map.get("playmaking")
-    _k_build = _keys_map.get("build_up") or _keys_map.get("buildup")
-    if _k_play and _k_build:
-        _merged = _radar_dedup_keep_order__pm_bu(PRESETS[_k_play] + PRESETS[_k_build])
-        _CORE = {"Progression", "Creativity", "Passing Quality", "xG Buildup", "Defence", "Involvement"}
-        _core_cnt = 0; _merged_limited = []
-        for m in _merged:
-            if m in _CORE:
-                if _core_cnt >= 3:
-                    continue
-                _core_cnt += 1
-            _merged_limited.append(m)
-        PRESETS["playmaking_build_up"] = _merged_limited[:10]
-        del PRESETS[_k_play]
-        del PRESETS[_k_build]
-except Exception as _e:
-    # Do not break the app if fusion fails for any reason
-    pass
-
-
-# --- A4 PDF export: horizontal percentiles-by-cohort bars with P50/P80 guides ---
-import numpy as np, pandas as pd
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
-
-def _percentile_rank_by_cohort_safe(df: pd.DataFrame, metric: str,
-                                    league_col: str = "League", pos_col: str = "Position",
-                                    season_col: str | None = None) -> pd.Series:
-    s = pd.to_numeric(df.get(metric, pd.Series(index=df.index, dtype=float)), errors="coerce")
-    mask = s.notna()
-    out = pd.Series(np.nan, index=df.index)
-
-    group_cols = [c for c in [league_col, pos_col, season_col] if c and c in df.columns]
-    if not group_cols:
-        def _pct_rank(x):
-            n = x.shape[0]
-            if n <= 1: return pd.Series(np.nan, index=x.index)
-            r = x.rank(ascending=False, method="average")
-            return 100.0 * (n - r) / (n - 1)
-        out.loc[mask] = _pct_rank(s[mask])
-        return out
-
-    grp_keys = df.loc[mask, group_cols].apply(tuple, axis=1)
-def _choose_default_blocks(df: pd.DataFrame) -> dict:
-    blocks = {}
-    cand_off = [c for c in [
-        "npxG per 90","Non-penalty goals per 90","Shots per 90","Shots on target, %",
-        "xA per 90","Key passes per 90","Smart passes per 90","Deep completions per 90",
-        "Touches in box per 90","Box Threat"
-    ] if c in df.columns]
-    if cand_off: blocks["Perfil ofensivo"] = cand_off[:8]
-
-    cand_prog = [c for c in [
-        "Passes to final third per 90","Passes to penalty area per 90","Progressive runs per 90",
-        "Progressive passes per 90","Accurate passes, %"
-    ] if c in df.columns]
-    if cand_prog: blocks["Progressão"] = cand_prog[:8]
-
-    cand_def = [c for c in [
-        "Successful defensive actions per 90","PAdj Interceptions","Defensive duels won, %",
-        "Aerial duels won, %","Recoveries per 90","Discipline"
-    ] if c in df.columns]
-    if cand_def: blocks["Defesa/Pressão"] = cand_def[:8]
-
-    return blocks
-
-def export_player_pdf_a4_bars(df: pd.DataFrame, player_name: str,
-                              cohort_filters: dict | None = None,
-                              blocks: dict | None = None,
-                              output_path: str = "player_report.pdf",
-                              league_col: str = "League", pos_col: str = "Position",
-                              season_col: str | None = None, minutes_col: str = "Minutes played"):
-    """
-    Creates a 1–2 page A4 landscape PDF with horizontal percentile bars by cohort and cut lines at P50/P80.
-    - df: your master dataframe
-    - player_name: exact name from df['Player']
-    - cohort_filters: e.g., {"League": "Championship", "Position": "CB"} to restrict coorte
-    - blocks: dict of {"Section title": [metric1, metric2, ...]}. If None, a sensible default is chosen.
-    """
-    if "Player" not in df.columns:
-        raise ValueError("DataFrame must have a 'Player' column.")
-
-    d = df.copy()
-    if cohort_filters:
-        for k, v in cohort_filters.items():
-            if k in d.columns:
-                d = d[d[k] == v]
-
-    cohort_df = d if len(d) >= 3 else df
-
-    if blocks is None:
-        blocks = _choose_default_blocks(cohort_df)
-
-    if player_name in d["Player"].values:
-        row = d[d["Player"] == player_name].iloc[0]
-    else:
-        row = df[df["Player"] == player_name].iloc[0]
-        d = df
-
-    try:
-        minutes = float(row.get(minutes_col, np.nan))
-    except Exception:
-        minutes = np.nan
-
-    pos = row.get(pos_col) if pos_col in row.index else None
-    league = row.get(league_col) if league_col in row.index else None
-
-    plot_blocks = []
-    for title, metrics in blocks.items():
-        avail = [m for m in metrics if m in cohort_df.columns]
-        if not avail: 
-            continue
-        pct_map = {}
-        raw_map = {}
-        for m in avail:
-            pct_series = _percentile_rank_by_cohort_safe(cohort_df, m, league_col, pos_col, season_col)
-            pct_series = pct_series.reindex(cohort_df.index)
-            val_pct = np.nan
-            if row.name in pct_series.index and pd.notna(pct_series.loc[row.name]):
-                val_pct = float(pct_series.loc[row.name])
-            pct_map[m] = val_pct
-            try:
-                raw_map[m] = float(pd.to_numeric(d.loc[row.name][m], errors="coerce")) if (row.name in d.index and m in d.columns) else np.nan
-            except Exception:
-                raw_map[m] = np.nan
-        kept = [m for m in avail if not np.isnan(pct_map[m])]
-        if kept:
-            plot_blocks.append((title, kept, pct_map, raw_map))
-
-    if not plot_blocks:
-        raise ValueError("No metrics available to plot for the selected player/cohort.")
-
-    a4_landscape = (11.69, 8.27)
-    with PdfPages(output_path) as pdf:
-        per_page = 3
-        for page_idx in range(0, len(plot_blocks), per_page):
-            page_blocks = plot_blocks[page_idx:page_idx+per_page]
-
-            fig = plt.figure(figsize=a4_landscape)
-            fig.suptitle(
-                f"{player_name} — {pos or ''} — {league or ''}  |  Percentis por coorte"
-                + (f"  |  Minutos: {int(minutes)}" if not np.isnan(minutes) else ""),
-                fontsize=14, y=0.98
-            )
-
-            top = 0.90; left = 0.08; right = 0.95; vspace = 0.26
-            for bi, (title, mets, pmap, rmap) in enumerate(page_blocks):
-                ax = fig.add_axes([left, top - (bi+1)*vspace + 0.03, right-left, vspace-0.06])
-                vals = [pmap[m] for m in mets]
-                y = np.arange(len(mets))
-                ax.barh(y, vals)
-                ax.set_yticks(y, labels=mets, fontsize=9)
-                ax.set_xlim(0, 100)
-                ax.set_xlabel("Percentil (0–100)")
-                ax.set_title(title, loc="left", fontsize=12)
-
-                ax.axvline(50, linestyle="--", linewidth=1)
-                ax.axvline(80, linestyle="--", linewidth=1)
-
-                for yi, m in enumerate(mets):
-                    rv = rmap[m]
-                    if not (rv is None or np.isnan(rv)):
-                        ax.text(vals[yi] + 1, yi, f"{rv:.2f}", va="center", fontsize=8)
-
-                ax.grid(True, axis="x", linewidth=0.3, alpha=0.4)
-            pdf.savefig(fig, bbox_inches="tight")
-            plt.close(fig)
