@@ -731,8 +731,8 @@ def plot_radar(df: pd.DataFrame, player_a: str, player_b: str | None, metrics: l
 
     fig, ax = plt.subplots(figsize=(8, 8))
     radar.setup_axis(ax=ax)
-    # ALTERADO: Fundo vermelho vivo
-    radar.draw_circles(ax=ax, facecolor="#fee2e2", edgecolor="#ef4444", alpha=0.18)
+    # CORREÇÃO: Fundo vermelho vivo
+    radar.draw_circles(ax=ax, facecolor="#fee2e2", edgecolor="#ef4444", alpha=0.22)
     try:
         radar.spoke(ax=ax, color="#c9c9c9", linestyle="--", alpha=0.18)
     except Exception:
@@ -1079,7 +1079,7 @@ def make_radar_bars_png(
     # Radar spans first 2 rows
     ax_radar = fig.add_subplot(gs[0:2, :])
     radar.setup_axis(ax=ax_radar)
-    # ALTERADO: Fundo vermelho vivo
+    # CORREÇÃO: Fundo vermelho vivo
     radar.draw_circles(
         ax=ax_radar,
         facecolor="#fee2e2",
@@ -1919,11 +1919,11 @@ def build_player_report_docx(
 
     _add_methodology_line(f"Players analyzed: {sample_size} players.")
     _add_methodology_line(
-        "Percentiles and radar always use the full loaded dataset. Negative-impact metrics are auto-reversed so “higher = better”.",
+        "Percentiles and radar always use the full loaded dataset. Negative-impact metrics are auto-reversed so "higher = better".",
     )
     _add_methodology_line("Data treatment & normalization:")
     _add_methodology_line(
-        "Missing values are safely handled; per-90 and ratio metrics guard against divide-by-zero. Composite scores are built from z-scores of component stats and then normalized to a 0–100 scale. Metrics where “lower is better” (e.g., cards, conceded/xGA) are inverted so that bigger bars/areas indicate stronger performance.",
+        "Missing values are safely handled; per-90 and ratio metrics guard against divide-by-zero. Composite scores are built from z-scores of component stats and then normalized to a 0–100 scale. Metrics where "lower is better" (e.g., cards, conceded/xGA) are inverted so that bigger bars/areas indicate stronger performance.",
     )
 
     _add_spacer(6)
